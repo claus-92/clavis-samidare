@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clavis-samidare"
+version = "0.1.0"
+description = "SAMIDARE board plugin for clavis"
+requires-python = ">=3.10"
+dependencies = ["clavis"]
+
+[project.entry-points."clavis.boards"]
+samidare = "clavis_samidare.plugin:plugin"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+clavis_samidare = ["parameter_definitions/*.json"]

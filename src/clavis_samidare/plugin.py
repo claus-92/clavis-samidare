@@ -1,0 +1,64 @@
+import json
+from importlib.resources import files
+
+from pydantic import BaseModel
+
+from clavis.clients.registry import ClientRegistry
+from clavis.plugins import BoardPlugin
+from clavis.schemas import BoardMetadata, ParameterDefinitions
+from clavis_samidare.board import SamidareBoard
+from clavis_samidare.config import SamidareConfig
+
+
+def create_board(config: BaseModel, clients: ClientRegistry) -> SamidareBoard:
+    samidare_config = _as_config(config)
+    if samidare_config.board_type != "samidare":
+        raise ValueError("SAMIDARE plugin can only create board_type='samidare'")
+
+    port = samidare_config.port_base
+    if samidare_config.reliable:
+        port = samidare_config.port_base + 1 + samidare_config.reliable_channel
+
+    transport = clients.create_transport(
+        "udp",
+        host=samidare_config.host,
+        port=port,
+        timeout=samidare_config.timeout,
+    )
+    client = clients.create_client("fakernet", transport=transport, reliable=samidare_config.reliable)
+    metadata = BoardMetadata(
+        board_id=samidare_config.board_id,
+        name=samidare_config.name,
+        asic=samidare_config.asic,
+        fpga=samidare_config.fpga,
+        firmware_version=samidare_config.firmware_version,
+        board_type="samidare",
+    )
+    return SamidareBoard(metadata, client)
+
+
+def load_parameters() -> ParameterDefinitions:
+    path = files("clavis_samidare") / "parameter_definitions" / "samidare.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if hasattr(ParameterDefinitions, "model_validate"):
+        return ParameterDefinitions.model_validate(data)
+    return ParameterDefinitions.parse_obj(data)
+
+
+def plugin() -> BoardPlugin:
+    return BoardPlugin(
+        board_type="samidare",
+        display_name="SAMIDARE",
+        config_model=SamidareConfig,
+        create_board=create_board,
+        load_parameters=load_parameters,
+    )
+
+
+def _as_config(config: BaseModel) -> SamidareConfig:
+    if isinstance(config, SamidareConfig):
+        return config
+    data = config.model_dump() if hasattr(config, "model_dump") else config.dict()
+    if hasattr(SamidareConfig, "model_validate"):
+        return SamidareConfig.model_validate(data)
+    return SamidareConfig.parse_obj(data)

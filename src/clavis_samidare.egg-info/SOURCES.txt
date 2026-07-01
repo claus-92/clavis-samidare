@@ -1,0 +1,14 @@
+README.md
+pyproject.toml
+src/clavis_samidare/__init__.py
+src/clavis_samidare/board.py
+src/clavis_samidare/config.py
+src/clavis_samidare/plugin.py
+src/clavis_samidare.egg-info/PKG-INFO
+src/clavis_samidare.egg-info/SOURCES.txt
+src/clavis_samidare.egg-info/dependency_links.txt
+src/clavis_samidare.egg-info/entry_points.txt
+src/clavis_samidare.egg-info/requires.txt
+src/clavis_samidare.egg-info/top_level.txt
+src/clavis_samidare/parameter_definitions/samidare.json
+tests/test_plugin.py
