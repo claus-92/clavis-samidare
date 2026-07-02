@@ -7,7 +7,7 @@ class SamidareConfig(BaseModel):
     name: str
     host: str
     port_base: int = 15
-    reliable: bool = True
+    reliable: bool = False
     reliable_channel: int = 0
     timeout: float = 0.1
     asic: str = "SAMPA_v4"

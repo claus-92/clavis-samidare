@@ -2,7 +2,7 @@ from typing import Any
 
 from clavis.boards.base import AcquisitionBoard
 from clavis.clients.base import RegisterClient
-from clavis.core.errors import BoardAlreadyAcquiringError, BoardAlreadyConnectedError, BoardNotAcquiringError, BoardNotConnectedError, BoardNotPoweredError, InvalidParameterError
+from clavis.core.errors import BoardAlreadyAcquiringError, BoardAlreadyConnectedError, BoardConnectionError, BoardNotAcquiringError, BoardNotConnectedError, BoardNotPoweredError, InvalidParameterError
 from clavis.schemas import BoardMetadata, BoardStatus
 from clavis_samidare.controls import SamidareControlState, decode_pon, encode_pon, update_state
 from clavis_samidare.registers import DELAY_ADJUST_INIT_REGISTER, LEGACY_START_REGISTER, LEGACY_START_VALUE, PON_REGISTER, TRIGGER_ENABLE_REGISTER
@@ -21,17 +21,34 @@ class SamidareBoard(AcquisitionBoard):
     def connect(self) -> None:
         if self.connected:
             raise BoardAlreadyConnectedError(f"Board already connected: {self.get_id()}")
-        self.client.open()
-        self.state = decode_pon(self.client.read_register(PON_REGISTER))
+        try:
+            self.client.open()
+            self.state = decode_pon(self.client.read_register(PON_REGISTER))
+        except Exception as exc:
+            self.connected = False
+            self.acquiring = False
+            self.state = SamidareControlState()
+            try:
+                self.client.close()
+            except Exception:
+                pass
+            raise BoardConnectionError(f"Failed to connect SAMIDARE board {self.get_id()}: {exc}") from exc
         self.connected = True
 
     def disconnect(self) -> None:
         if not self.connected:
             raise BoardNotConnectedError(f"Board not connected: {self.get_id()}")
-        self.client.close()
-        self.connected = False
-        self.acquiring = False
-        self.state = SamidareControlState()
+        close_error: Exception | None = None
+        try:
+            self.client.close()
+        except Exception as exc:
+            close_error = exc
+        finally:
+            self.connected = False
+            self.acquiring = False
+            self.state = SamidareControlState()
+        if close_error is not None:
+            raise BoardConnectionError(f"Failed to disconnect SAMIDARE board {self.get_id()}: {close_error}") from close_error
 
     def power_on(self) -> None:
         self._require_connected()

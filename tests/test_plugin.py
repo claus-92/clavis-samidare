@@ -1,7 +1,7 @@
 import pytest
 
 from clavis.clients.fake import FakeRegisterClient
-from clavis.core.errors import BoardAlreadyAcquiringError, BoardNotAcquiringError, BoardNotPoweredError, InvalidParameterError
+from clavis.core.errors import BoardAlreadyAcquiringError, BoardConnectionError, BoardNotAcquiringError, BoardNotPoweredError, InvalidParameterError
 from clavis.schemas import BoardMetadata
 from clavis_samidare.board import SamidareBoard
 from clavis_samidare.config import SamidareConfig
@@ -17,6 +17,16 @@ class RecordingRegisterClient(FakeRegisterClient):
     def write_register(self, address: int, value: int) -> None:
         self.writes.append((address, value))
         super().write_register(address, value)
+
+
+class FailingOpenClient(FakeRegisterClient):
+    def open(self) -> None:
+        raise RuntimeError("open failed")
+
+
+class FailingCloseClient(FakeRegisterClient):
+    def close(self) -> None:
+        raise RuntimeError("close failed")
 
 
 def make_board(client: FakeRegisterClient) -> SamidareBoard:
@@ -52,6 +62,31 @@ def test_config_defaults_to_fakernet_reliable_udp() -> None:
     config = SamidareConfig(board_id="samidare-001", name="SAMIDARE", host="192.0.2.1")
     assert config.port_base == 15
     assert config.reliable is True
+
+
+def test_connect_maps_client_errors_to_board_connection_error() -> None:
+    board = make_board(FailingOpenClient())
+
+    with pytest.raises(BoardConnectionError, match="open failed"):
+        board.connect()
+
+    status = board.get_status()
+    assert status.connected is False
+    assert status.acquiring is False
+
+
+def test_disconnect_clears_local_state_when_client_close_fails() -> None:
+    client = FailingCloseClient()
+    board = make_board(client)
+    board.connect()
+    board.acquiring = True
+
+    with pytest.raises(BoardConnectionError, match="close failed"):
+        board.disconnect()
+
+    status = board.get_status()
+    assert status.connected is False
+    assert status.acquiring is False
 
 
 def test_power_on_writes_pon_register() -> None:
