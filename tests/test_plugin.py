@@ -1,11 +1,13 @@
 import pytest
 
+from clavis.clients.fakernet import FakernetRegisterClient
 from clavis.clients.fake import FakeRegisterClient
 from clavis.core.errors import BoardAlreadyAcquiringError, BoardConnectionError, BoardNotAcquiringError, BoardNotPoweredError, InvalidParameterError
 from clavis.schemas import BoardMetadata
+from clavis.transport.udp import UdpTransport
 from clavis_samidare.board import SamidareBoard
 from clavis_samidare.config import SamidareConfig
-from clavis_samidare.plugin import load_parameters, plugin
+from clavis_samidare.plugin import create_board, load_parameters, plugin
 from clavis_samidare.registers import CALIBRATION_FAILED, CALIBRATION_READY, CALIBRATION_STATUS_REGISTER, DELAY_ADJUST_INIT_REGISTER, LEGACY_START_REGISTER, LEGACY_START_VALUE, PON_REGISTER, SAMPA_RESET_REGISTER, SAMPA_RESET_REQUEST, TRIGGER_ENABLE_REGISTER
 
 
@@ -65,10 +67,28 @@ def test_samidare_board_uses_injected_client() -> None:
     assert client.is_open is False
 
 
-def test_config_defaults_to_fakernet_reliable_udp() -> None:
+def test_config_defaults_to_fakernet_unreliable_udp() -> None:
     config = SamidareConfig(board_id="samidare-001", name="SAMIDARE", host="192.0.2.1")
     assert config.port_base == 15
     assert config.reliable is False
+
+
+def test_plugin_constructs_its_fakernet_client_and_udp_transport() -> None:
+    board = create_board(
+        SamidareConfig(
+            board_id="samidare-001",
+            name="SAMIDARE",
+            host="192.0.2.1",
+            reliable=True,
+            reliable_channel=2,
+        )
+    )
+
+    assert isinstance(board.client, FakernetRegisterClient)
+    assert board.client.reliable is True
+    assert isinstance(board.client.transport, UdpTransport)
+    assert board.client.transport.host == "192.0.2.1"
+    assert board.client.transport.port == 18
 
 
 def test_connect_maps_client_errors_to_board_connection_error() -> None:

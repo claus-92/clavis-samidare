@@ -3,14 +3,15 @@ from importlib.resources import files
 
 from pydantic import BaseModel
 
-from clavis.clients.registry import ClientRegistry
+from clavis.clients.fakernet import FakernetRegisterClient
 from clavis.plugins import BoardPlugin
 from clavis.schemas import BoardMetadata, ParameterDefinitions
+from clavis.transport.udp import UdpTransport
 from clavis_samidare.board import SamidareBoard
 from clavis_samidare.config import SamidareConfig
 
 
-def create_board(config: BaseModel, clients: ClientRegistry) -> SamidareBoard:
+def create_board(config: BaseModel) -> SamidareBoard:
     samidare_config = _as_config(config)
     if samidare_config.board_type != "samidare":
         raise ValueError("SAMIDARE plugin can only create board_type='samidare'")
@@ -19,13 +20,15 @@ def create_board(config: BaseModel, clients: ClientRegistry) -> SamidareBoard:
     if samidare_config.reliable:
         port = samidare_config.port_base + 1 + samidare_config.reliable_channel
 
-    transport = clients.create_transport(
-        "udp",
+    transport = UdpTransport(
         host=samidare_config.host,
         port=port,
         timeout=samidare_config.timeout,
     )
-    client = clients.create_client("fakernet", transport=transport, reliable=samidare_config.reliable)
+    client = FakernetRegisterClient(
+        transport=transport,
+        reliable=samidare_config.reliable,
+    )
     metadata = BoardMetadata(
         board_id=samidare_config.board_id,
         name=samidare_config.name,
