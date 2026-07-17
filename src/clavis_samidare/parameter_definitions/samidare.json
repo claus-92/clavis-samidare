@@ -12,7 +12,9 @@
       "type": "integer",
       "defaultValue": 0,
       "options": [],
-      "description": "Self-trigger threshold, 0-1023"
+      "minimum": 0,
+      "maximum": 1023,
+      "description": "Self-trigger threshold"
     },
     {
       "name": "polarity",
