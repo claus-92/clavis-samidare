@@ -19,6 +19,12 @@ See the [configuration and operation guide](docs/configuration.md) before using
 real hardware. Register addresses and supported firmware assumptions are
 documented in [hardware notes](docs/hardware.md).
 
+To build a local plugin-equipped image after building `clavis:local`:
+
+```bash
+docker build --build-arg CLAVIS_BASE_IMAGE=clavis:local -t clavis-samidare:local .
+```
+
 ## License
 
 Clavis SAMIDARE is licensed under the [Mozilla Public License 2.0](LICENSE).
