@@ -1,13 +1,28 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "clavis-samidare"
 version = "0.1.0"
 description = "SAMIDARE board plugin for clavis"
+readme = "README.md"
+license = "MPL-2.0"
+authors = [{ name = "claus-92", email = "claudio.santonastaso@gmail.com" }]
 requires-python = ">=3.10"
-dependencies = ["clavis"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = ["clavis>=0.1,<0.2", "pydantic>=2,<3"]
+
+[project.urls]
+Homepage = "https://github.com/claus-92/clavis-samidare"
+Repository = "https://github.com/claus-92/clavis-samidare"
+Issues = "https://github.com/claus-92/clavis-samidare/issues"
 
 [project.entry-points."clavis.boards"]
 samidare = "clavis_samidare.plugin:plugin"

@@ -1,2 +1,0 @@
-[clavis.boards]
-samidare = clavis_samidare.plugin:plugin

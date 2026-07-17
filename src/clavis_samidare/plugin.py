@@ -47,9 +47,7 @@ def create_board(config: BaseModel, clients: ClientRegistry) -> SamidareBoard:
 def load_parameters() -> ParameterDefinitions:
     path = files("clavis_samidare") / "parameter_definitions" / "samidare.json"
     data = json.loads(path.read_text(encoding="utf-8"))
-    if hasattr(ParameterDefinitions, "model_validate"):
-        return ParameterDefinitions.model_validate(data)
-    return ParameterDefinitions.parse_obj(data)
+    return ParameterDefinitions.model_validate(data)
 
 
 def plugin() -> BoardPlugin:
@@ -65,7 +63,4 @@ def plugin() -> BoardPlugin:
 def _as_config(config: BaseModel) -> SamidareConfig:
     if isinstance(config, SamidareConfig):
         return config
-    data = config.model_dump() if hasattr(config, "model_dump") else config.dict()
-    if hasattr(SamidareConfig, "model_validate"):
-        return SamidareConfig.model_validate(data)
-    return SamidareConfig.parse_obj(data)
+    return SamidareConfig.model_validate(config.model_dump())

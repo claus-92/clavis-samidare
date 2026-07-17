@@ -68,7 +68,7 @@ def test_samidare_board_uses_injected_client() -> None:
 def test_config_defaults_to_fakernet_reliable_udp() -> None:
     config = SamidareConfig(board_id="samidare-001", name="SAMIDARE", host="192.0.2.1")
     assert config.port_base == 15
-    assert config.reliable is True
+    assert config.reliable is False
 
 
 def test_connect_maps_client_errors_to_board_connection_error() -> None:

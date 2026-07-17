@@ -1,39 +1,24 @@
-# clavis-samidare
+# Clavis SAMIDARE plugin
 
-SAMIDARE board plugin for `clavis`.
+This package adds SAMIDARE acquisition-board support to
+[Clavis](https://github.com/claus-92/clavis). It communicates with the board
+using the core fakernet register client over UDP.
 
-Install locally while developing:
+## Development setup
 
-```bash
-uv pip install -e path/to/clavis-samidare
-```
-
-The package registers a `clavis.boards` entry point with board type `samidare`.
-
-## Docker image
-
-Build the core Clavis image first, or use a published core image as the base.
-From this repository, build the plugin-equipped daemon image with:
+From the Clavis repository:
 
 ```bash
-docker build \
-  --build-arg CLAVIS_BASE_IMAGE=ghcr.io/OWNER/clavis:0.1.0 \
-  -t ghcr.io/OWNER/clavis-samidare:0.1.0 \
-  .
+uv sync --extra test
+uv pip install -e ../clavis-samidare
+uv run pytest ../clavis-samidare/tests
+uv run clavis boards types
 ```
 
-Publish it with:
+See the [configuration and operation guide](docs/configuration.md) before using
+real hardware. Register addresses and supported firmware assumptions are
+documented in [hardware notes](docs/hardware.md).
 
-```bash
-docker login ghcr.io
-docker push ghcr.io/OWNER/clavis-samidare:0.1.0
-```
+## License
 
-Select this image when running the Compose file from the `clavis` repository.
-The same running container provides the daemon and on-demand CLI commands:
-
-```bash
-export CLAVIS_DAEMON_IMAGE=ghcr.io/OWNER/clavis-samidare:0.1.0
-docker compose up --no-build -d daemon
-docker exec clavis clavis boards types
-```
+Clavis SAMIDARE is licensed under the [Mozilla Public License 2.0](LICENSE).
