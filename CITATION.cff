@@ -5,6 +5,9 @@ type: software
 authors:
   - family-names: Santonastaso
     given-names: Claudio
+    orcid: "https://orcid.org/0000-0001-7789-1102"
+    email: claudio.santonastaso@gmail.com
+    affiliation: 'Riken Nishina Center, Saitama, Wako, Japan'
 repository-code: "https://github.com/claus-92/clavis-samidare"
 url: "https://github.com/claus-92/clavis-samidare"
 version: 0.1.0

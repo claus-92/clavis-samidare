@@ -34,3 +34,7 @@ env/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Local root documentation
+/*.md
+!/README.md
