@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: clavis-samidare
+      - uses: actions/checkout@v4
+        with:
+          repository: claus-92/clavis
+          path: clavis
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+      - run: uv venv .venv --python ${{ matrix.python-version }}
+      - run: uv pip install --python .venv/bin/python -e "./clavis[test]" -e ./clavis-samidare
+      - run: .venv/bin/python -m pytest clavis-samidare/tests
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: clavis-samidare
+      - uses: actions/checkout@v4
+        with:
+          repository: claus-92/clavis
+          path: clavis
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv build
+        working-directory: clavis-samidare
+      - run: uvx twine check clavis-samidare/dist/*
+      - name: Inspect source distribution
+        run: python -c "import tarfile; p=next(__import__('pathlib').Path('clavis-samidare/dist').glob('*.tar.gz')); n=tarfile.open(p).getnames(); assert any(x.endswith('/CITATION.cff') for x in n); assert any('/docs/hardware.md' in x for x in n)"
+      - name: Install wheel and verify plugin discovery
+        run: |
+          uv venv /tmp/clavis-samidare-wheel-test --python 3.12
+          uv pip install --python /tmp/clavis-samidare-wheel-test/bin/python ./clavis clavis-samidare/dist/*.whl
+          /tmp/clavis-samidare-wheel-test/bin/python -c "from importlib.metadata import entry_points; assert 'samidare' in {entry.name for entry in entry_points(group='clavis.boards')}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clavis-samidare-distributions
+          path: clavis-samidare/dist/*

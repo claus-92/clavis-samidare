@@ -1,0 +1,4 @@
+include CITATION.cff
+include LICENSE
+include NOTICE
+recursive-include docs *.md

@@ -16,7 +16,7 @@ def test_encode_full_pon_control_state() -> None:
         gain=3,
         samples=64,
         pretrigger=8,
-        external_clk=True,
+        clock_source="gpio",
     )
 
     assert encode_pon(state) == 0x61904B
@@ -31,10 +31,18 @@ def test_decode_pon_round_trips_supported_values() -> None:
         gain=2,
         samples=128,
         pretrigger=16,
-        external_clk=True,
+        clock_source="gpio",
     )
 
     assert decode_pon(encode_pon(state)) == state
+
+
+def test_clock_source_uses_both_firmware_bits() -> None:
+    state = SamidareControlState(clock_source="mikumari")
+
+    assert encode_pon(state) & (0x3 << 22) == 0x2 << 22
+    assert decode_pon(encode_pon(state)).clock_source == "mikumari"
+    assert decode_pon(0x3 << 22).clock_source == "invalid"
 
 
 def test_update_state_validates_values() -> None:

@@ -15,10 +15,18 @@ accepts:
 | `calibration_poll_interval` | `0.05` | Calibration polling interval |
 
 The current driver implements global trigger, threshold, polarity, gain,
-sample-count, pretrigger, and external-clock controls. Group and channel
-parameters are not currently exposed.
+sample-count, pretrigger, and clock-source controls. `clock_source` accepts
+`internal`, `gpio`, or `mikumari`. Group and channel parameters are not
+currently exposed.
 
 The normal sequence is connect, power on, wait for calibration, start and stop
 acquisition, power off, then disconnect. Power-on and acquisition operations
 write hardware registers; use only on a trusted network with the intended
 board and firmware.
+
+While connected, each status request reads the PON control, trigger-enable,
+calibration status, and calibration diagnostic registers. Power, acquisition,
+and control values therefore reflect the board rather than only the driver's
+previous writes. Disconnect closes only the control channel: it does not stop
+acquisition or power off the board. The last complete observation remains
+available with `status_fresh=false` until a successful reconnect and refresh.

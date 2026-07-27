@@ -7,6 +7,7 @@ POLARITIES = {"positive", "negative"}
 GAINS = {1, 2, 3}
 SAMPLES = {16, 32, 64, 128}
 PRETRIGGERS = {0, 4, 8, 16}
+CLOCK_SOURCES = {"internal", "gpio", "mikumari"}
 
 
 @dataclass(frozen=True)
@@ -18,7 +19,7 @@ class SamidareControlState:
     gain: int = 1
     samples: int = 16
     pretrigger: int = 0
-    external_clk: bool = False
+    clock_source: str = "internal"
 
     def as_options(self) -> dict[str, Any]:
         return {
@@ -28,7 +29,7 @@ class SamidareControlState:
             "gain": self.gain,
             "samples": self.samples,
             "pretrigger": self.pretrigger,
-            "external_clk": self.external_clk,
+            "clock_source": self.clock_source,
         }
 
 
@@ -50,10 +51,8 @@ def update_state(state: SamidareControlState, options: dict[str, Any]) -> Samida
             updates[key] = _validate_int_choice(key, value, SAMPLES)
         elif key == "pretrigger":
             updates[key] = _validate_int_choice(key, value, PRETRIGGERS)
-        elif key == "external_clk":
-            if not isinstance(value, bool):
-                raise ValueError("external_clk must be boolean")
-            updates[key] = value
+        elif key == "clock_source":
+            updates[key] = _validate_string(key, value, CLOCK_SOURCES)
         else:
             raise ValueError(f"Unknown SAMIDARE control: {key}")
     return replace(state, **updates)
@@ -79,8 +78,7 @@ def encode_pon(state: SamidareControlState) -> int:
         value |= 1 << 7
     value |= (state.trigger_threshold & 0x3FF) << 10
     value |= _pretrigger_bits(state.pretrigger) << 20
-    if state.external_clk:
-        value |= 1 << 22
+    value |= {"internal": 0, "gpio": 1, "mikumari": 2}[state.clock_source] << 22
     return value
 
 
@@ -101,7 +99,7 @@ def decode_pon(value: int) -> SamidareControlState:
         gain=_gain_from_bits((value >> 4) & 0x1, (value >> 5) & 0x1, (value >> 6) & 0x1),
         samples=_samples_from_bits((value >> 2) & 0x3),
         pretrigger=_pretrigger_from_bits((value >> 20) & 0x3),
-        external_clk=bool(value & (1 << 22)),
+        clock_source={0: "internal", 1: "gpio", 2: "mikumari", 3: "invalid"}[(value >> 22) & 0x3],
     )
 
 

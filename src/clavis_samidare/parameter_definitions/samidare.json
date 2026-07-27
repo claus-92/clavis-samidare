@@ -45,11 +45,11 @@
       "description": "Pretrigger sample setting"
     },
     {
-      "name": "external_clk",
-      "type": "boolean",
-      "defaultValue": false,
-      "options": [true, false],
-      "description": "Enable external clock"
+      "name": "clock_source",
+      "type": "string",
+      "defaultValue": "internal",
+      "options": ["internal", "gpio", "mikumari"],
+      "description": "SAMPA clock source"
     }
   ],
   "channelParameters": [],

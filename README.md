@@ -27,4 +27,9 @@ docker build --build-arg CLAVIS_BASE_IMAGE=clavis:local -t clavis-samidare:local
 
 ## License
 
-Clavis SAMIDARE is licensed under the [Mozilla Public License 2.0](LICENSE).
+Clavis SAMIDARE is licensed under the [Apache License 2.0](LICENSE).
+
+## Citing the plugin
+
+If this plugin contributes to published work, cite it using the metadata in
+[`CITATION.cff`](CITATION.cff). Cite Clavis core separately when appropriate.

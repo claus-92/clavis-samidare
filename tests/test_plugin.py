@@ -8,7 +8,7 @@ from clavis.transport.udp import UdpTransport
 from clavis_samidare.board import SamidareBoard
 from clavis_samidare.config import SamidareConfig
 from clavis_samidare.plugin import create_board, load_parameters, plugin
-from clavis_samidare.registers import CALIBRATION_FAILED, CALIBRATION_READY, CALIBRATION_STATUS_REGISTER, DELAY_ADJUST_INIT_REGISTER, LEGACY_START_REGISTER, LEGACY_START_VALUE, PON_REGISTER, SAMPA_RESET_REGISTER, SAMPA_RESET_REQUEST, TRIGGER_ENABLE_REGISTER
+from clavis_samidare.registers import CALIBRATION_DEBUG_HIGH_REGISTER, CALIBRATION_DEBUG_LOW_REGISTER, CALIBRATION_FAILED, CALIBRATION_INCOMPLETE_HIGH_REGISTER, CALIBRATION_INCOMPLETE_LOW_REGISTER, CALIBRATION_READY, CALIBRATION_STATUS_REGISTER, DELAY_ADJUST_INIT_REGISTER, PON_REGISTER, SAMPA_RESET_REGISTER, SAMPA_RESET_REQUEST, TRIGGER_ENABLE_REGISTER
 
 
 class RecordingRegisterClient(FakeRegisterClient):
@@ -29,6 +29,15 @@ class FailingOpenClient(FakeRegisterClient):
 class FailingCloseClient(FakeRegisterClient):
     def close(self) -> None:
         raise RuntimeError("close failed")
+
+
+class ToggleReadFailureClient(RecordingRegisterClient):
+    fail_reads = False
+
+    def read_register(self, address: int) -> int:
+        if self.fail_reads:
+            raise TimeoutError("status timeout")
+        return super().read_register(address)
 
 
 def make_board(client: FakeRegisterClient) -> SamidareBoard:
@@ -102,7 +111,7 @@ def test_connect_maps_client_errors_to_board_connection_error() -> None:
     assert status.acquiring is False
 
 
-def test_disconnect_clears_local_state_when_client_close_fails() -> None:
+def test_disconnect_preserves_last_hardware_state_when_client_close_fails() -> None:
     client = FailingCloseClient()
     board = make_board(client)
     board.connect()
@@ -113,7 +122,25 @@ def test_disconnect_clears_local_state_when_client_close_fails() -> None:
 
     status = board.get_status()
     assert status.connected is False
-    assert status.acquiring is False
+    assert status.acquiring is True
+    assert status.status_fresh is False
+
+
+def test_disconnect_does_not_write_hardware_and_marks_status_stale() -> None:
+    client = RecordingRegisterClient()
+    client.registers[PON_REGISTER] = 0xB1
+    client.registers[TRIGGER_ENABLE_REGISTER] = 1
+    board = make_board(client)
+    board.connect()
+
+    board.disconnect()
+
+    status = board.get_status()
+    assert client.writes == []
+    assert status.connected is False
+    assert status.powered is True
+    assert status.acquiring is True
+    assert status.status_fresh is False
 
 
 def test_power_on_writes_pon_register() -> None:
@@ -159,6 +186,65 @@ def test_power_on_reports_calibration_timeout() -> None:
     assert board.get_status().global_options["calibration_ready"] is False
 
 
+def test_status_decodes_calibration_debug_registers() -> None:
+    client = RecordingRegisterClient()
+    debug = 1 | (3 << 1) | (0xA << 3) | (0x123456789A << 7) | (1 << 47) | (0x20 << 48)
+    incomplete = 0xA5 | (0x12A << 8) | (0xBEEF << 17) | (17 << 33)
+    client.registers[CALIBRATION_STATUS_REGISTER] = CALIBRATION_READY | (3 << 1)
+    client.registers[CALIBRATION_DEBUG_LOW_REGISTER] = debug & 0xFFFFFFFF
+    client.registers[CALIBRATION_DEBUG_HIGH_REGISTER] = debug >> 32
+    client.registers[CALIBRATION_INCOMPLETE_LOW_REGISTER] = incomplete & 0xFFFFFFFF
+    client.registers[CALIBRATION_INCOMPLETE_HIGH_REGISTER] = incomplete >> 32
+    board = make_board(client)
+    board.connect()
+
+    options = board.get_status().global_options
+
+    assert options["calibration_state"] == "done"
+    assert options["calibration_init"] is True
+    assert options["calibration_clock_done_mask"] == "0xa"
+    assert options["calibration_lane_done_mask"] == "0x123456789a"
+    assert options["calibration_done"] is True
+    assert options["calibration_incomplete_lane_state"] == "0x20"
+    assert options["calibration_incomplete_lane_index"] == 17
+    assert options["calibration_incomplete_timeout"] == 0xBEEF
+    assert options["calibration_incomplete_current_tap"] == 0x12A
+    assert options["calibration_incomplete_cdc"] == "0xa5"
+
+
+def test_status_refreshes_power_controls_and_acquisition_from_hardware() -> None:
+    client = RecordingRegisterClient()
+    board = make_board(client)
+    board.connect()
+    client.registers[PON_REGISTER] = 0x61904B
+    client.registers[TRIGGER_ENABLE_REGISTER] = 1
+
+    status = board.get_status()
+
+    assert status.status_fresh is True
+    assert status.powered is True
+    assert status.acquiring is True
+    assert status.global_options["trigger"] == "self"
+    assert status.global_options["trigger_threshold"] == 100
+    assert status.global_options["clock_source"] == "gpio"
+
+
+def test_failed_status_refresh_preserves_last_complete_snapshot() -> None:
+    client = ToggleReadFailureClient()
+    client.registers[PON_REGISTER] = 0xB1
+    client.registers[TRIGGER_ENABLE_REGISTER] = 1
+    board = make_board(client)
+    board.connect()
+    client.fail_reads = True
+
+    status = board.get_status()
+
+    assert status.status_fresh is False
+    assert status.powered is True
+    assert status.acquiring is True
+    assert status.global_options["status_error"] == "status timeout"
+
+
 def test_set_global_updates_pon_register() -> None:
     client = RecordingRegisterClient()
     client.registers[PON_REGISTER] = 0xB0
@@ -193,7 +279,7 @@ def test_start_acquisition_requires_power() -> None:
         board.start_acquisition()
 
 
-def test_start_stop_acquisition_writes_legacy_sequence() -> None:
+def test_start_stop_acquisition_writes_trigger_enable() -> None:
     client = RecordingRegisterClient()
     client.registers[CALIBRATION_STATUS_REGISTER] = CALIBRATION_READY
     board = make_board(client)
@@ -209,7 +295,6 @@ def test_start_stop_acquisition_writes_legacy_sequence() -> None:
         board.stop_acquisition()
 
     assert client.writes == [
-        (LEGACY_START_REGISTER, LEGACY_START_VALUE),
         (TRIGGER_ENABLE_REGISTER, 1),
         (TRIGGER_ENABLE_REGISTER, 0),
     ]

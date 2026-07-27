@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use the Clavis SAMIDARE plugin in your work, please cite it using this metadata."
+title: "Clavis SAMIDARE board plugin"
+type: software
+authors:
+  - family-names: Santonastaso
+    given-names: Claudio
+repository-code: "https://github.com/claus-92/clavis-samidare"
+url: "https://github.com/claus-92/clavis-samidare"
+version: 0.1.0
+license: Apache-2.0

@@ -6,7 +6,15 @@ from clavis.clients.base import RegisterClient
 from clavis.core.errors import BoardAlreadyAcquiringError, BoardAlreadyConnectedError, BoardConnectionError, BoardNotAcquiringError, BoardNotConnectedError, BoardNotPoweredError, InvalidParameterError
 from clavis.schemas import BoardMetadata, BoardStatus
 from clavis_samidare.controls import SamidareControlState, decode_pon, encode_pon, update_state
-from clavis_samidare.registers import CALIBRATION_FAILED, CALIBRATION_READY, CALIBRATION_STATUS_REGISTER, DELAY_ADJUST_INIT_REGISTER, LEGACY_START_REGISTER, LEGACY_START_VALUE, PON_REGISTER, SAMPA_RESET_REGISTER, SAMPA_RESET_REQUEST, TRIGGER_ENABLE_REGISTER
+from clavis_samidare.registers import CALIBRATION_DEBUG_HIGH_REGISTER, CALIBRATION_DEBUG_LOW_REGISTER, CALIBRATION_FAILED, CALIBRATION_INCOMPLETE_HIGH_REGISTER, CALIBRATION_INCOMPLETE_LOW_REGISTER, CALIBRATION_READY, CALIBRATION_STATE_MASK, CALIBRATION_STATE_SHIFT, CALIBRATION_STATUS_REGISTER, DELAY_ADJUST_INIT_REGISTER, PON_REGISTER, SAMPA_RESET_REGISTER, SAMPA_RESET_REQUEST, TRIGGER_ENABLE_REGISTER
+
+
+CALIBRATION_STATES = {
+    0: "idle",
+    1: "clock_adjust",
+    2: "signal_adjust",
+    3: "done",
+}
 
 
 class SamidareBoard(AcquisitionBoard):
@@ -25,6 +33,11 @@ class SamidareBoard(AcquisitionBoard):
         self.connected = False
         self.acquiring = False
         self.calibration_ready = False
+        self.calibration_status = 0
+        self.calibration_debug = 0
+        self.calibration_incomplete = 0
+        self.status_fresh = False
+        self.status_error: str | None = None
         self.power_settle_time = power_settle_time
         self.reset_settle_time = reset_settle_time
         self.calibration_timeout = calibration_timeout
@@ -38,12 +51,11 @@ class SamidareBoard(AcquisitionBoard):
             raise BoardAlreadyConnectedError(f"Board already connected: {self.get_id()}")
         try:
             self.client.open()
-            self.state = decode_pon(self.client.read_register(PON_REGISTER))
+            self._refresh_hardware_status()
         except Exception as exc:
             self.connected = False
-            self.acquiring = False
-            self.calibration_ready = False
-            self.state = SamidareControlState()
+            self.status_fresh = False
+            self.status_error = str(exc)
             try:
                 self.client.close()
             except Exception:
@@ -61,17 +73,21 @@ class SamidareBoard(AcquisitionBoard):
             close_error = exc
         finally:
             self.connected = False
-            self.acquiring = False
-            self.calibration_ready = False
-            self.state = SamidareControlState()
+            self.status_fresh = False
         if close_error is not None:
             raise BoardConnectionError(f"Failed to disconnect SAMIDARE board {self.get_id()}: {close_error}") from close_error
 
     def power_on(self) -> None:
         self._require_connected()
+        self._refresh_hardware_status()
         self.client.write_register(TRIGGER_ENABLE_REGISTER, 0)
+        self.acquiring = False
         self.client.write_register(DELAY_ADJUST_INIT_REGISTER, 0)
         self.calibration_ready = False
+        self.calibration_status = 0
+        self.calibration_debug = 0
+        self.calibration_incomplete = 0
+        self.status_error = None
         self.state = SamidareControlState(**{**self.state.__dict__, "powered": True})
         self._write_pon()
         time.sleep(self.power_settle_time)
@@ -82,29 +98,34 @@ class SamidareBoard(AcquisitionBoard):
 
     def power_off(self) -> None:
         self._require_connected()
+        self._refresh_hardware_status()
         self.client.write_register(TRIGGER_ENABLE_REGISTER, 0)
         self.client.write_register(DELAY_ADJUST_INIT_REGISTER, 0)
         self.acquiring = False
         self.calibration_ready = False
+        self.calibration_status = 0
+        self.calibration_debug = 0
+        self.calibration_incomplete = 0
         self.state = SamidareControlState(**{**self.state.__dict__, "powered": False})
         self._write_pon()
 
     def start_acquisition(self) -> None:
         self._require_connected()
+        self._refresh_hardware_status()
         if not self.state.powered:
             raise BoardNotPoweredError(f"SAMIDARE board is not powered: {self.get_id()}")
         if self.acquiring:
             raise BoardAlreadyAcquiringError(f"SAMIDARE board is already acquiring: {self.get_id()}")
-        status = self.client.read_register(CALIBRATION_STATUS_REGISTER)
+        status = self.calibration_status
         if not status & CALIBRATION_READY or status & CALIBRATION_FAILED:
             self.calibration_ready = False
-            raise BoardConnectionError(f"SAMIDARE board is not calibration-ready: status=0x{status:08x}")
-        self.client.write_register(LEGACY_START_REGISTER, LEGACY_START_VALUE)
+            raise BoardConnectionError(f"SAMIDARE board is not calibration-ready: {self._calibration_summary()}")
         self.client.write_register(TRIGGER_ENABLE_REGISTER, 1)
         self.acquiring = True
 
     def stop_acquisition(self) -> None:
         self._require_connected()
+        self._refresh_hardware_status()
         if not self.acquiring:
             raise BoardNotAcquiringError(f"SAMIDARE board is not acquiring: {self.get_id()}")
         self.client.write_register(TRIGGER_ENABLE_REGISTER, 0)
@@ -120,6 +141,7 @@ class SamidareBoard(AcquisitionBoard):
 
     def set_global(self, options: dict[str, Any]) -> None:
         self._require_connected()
+        self._refresh_hardware_status()
         try:
             self.state = update_state(self.state, options)
         except ValueError as exc:
@@ -130,12 +152,19 @@ class SamidareBoard(AcquisitionBoard):
         return self.metadata.board_id
 
     def get_status(self) -> BoardStatus:
+        if self.connected:
+            try:
+                self._refresh_hardware_status()
+            except Exception as exc:
+                self.status_fresh = False
+                self.status_error = str(exc)
         return BoardStatus(
             board_id=self.get_id(),
             connected=self.connected,
             powered=self.state.powered,
             acquiring=self.acquiring,
-            global_options={**self.state.as_options(), "calibration_ready": self.calibration_ready},
+            status_fresh=self.status_fresh,
+            global_options={**self.state.as_options(), **self._calibration_options()},
             group_options=self.group_options,
             channel_options=self.channel_options,
         )
@@ -152,10 +181,57 @@ class SamidareBoard(AcquisitionBoard):
         last_status = 0
         while time.monotonic() < deadline:
             last_status = self.client.read_register(CALIBRATION_STATUS_REGISTER)
+            self.calibration_status = last_status
             if last_status & CALIBRATION_FAILED:
-                raise BoardConnectionError(f"SAMIDARE calibration failed: status=0x{last_status:08x}")
+                self._refresh_hardware_status()
+                raise BoardConnectionError(f"SAMIDARE calibration failed: {self._calibration_summary()}")
             if last_status & CALIBRATION_READY:
-                self.calibration_ready = True
+                self._refresh_hardware_status()
                 return
             time.sleep(self.calibration_poll_interval)
-        raise BoardConnectionError(f"SAMIDARE calibration timed out: status=0x{last_status:08x}")
+        self._refresh_hardware_status()
+        raise BoardConnectionError(f"SAMIDARE calibration timed out: {self._calibration_summary()}")
+
+    def _refresh_hardware_status(self) -> None:
+        state = decode_pon(self.client.read_register(PON_REGISTER))
+        acquiring = bool(self.client.read_register(TRIGGER_ENABLE_REGISTER) & 0x1)
+        calibration_status = self.client.read_register(CALIBRATION_STATUS_REGISTER)
+        debug_low = self.client.read_register(CALIBRATION_DEBUG_LOW_REGISTER)
+        debug_high = self.client.read_register(CALIBRATION_DEBUG_HIGH_REGISTER)
+        incomplete_low = self.client.read_register(CALIBRATION_INCOMPLETE_LOW_REGISTER)
+        incomplete_high = self.client.read_register(CALIBRATION_INCOMPLETE_HIGH_REGISTER)
+        self.state = state
+        self.acquiring = acquiring
+        self.calibration_status = calibration_status
+        self.calibration_debug = debug_low | ((debug_high & 0xFFFFFF) << 32)
+        self.calibration_incomplete = incomplete_low | ((incomplete_high & 0xFF) << 32)
+        self.calibration_ready = bool(self.calibration_status & CALIBRATION_READY) and not bool(self.calibration_status & CALIBRATION_FAILED)
+        self.status_fresh = True
+        self.status_error = None
+
+    def _calibration_options(self) -> dict[str, Any]:
+        state = (self.calibration_status & CALIBRATION_STATE_MASK) >> CALIBRATION_STATE_SHIFT
+        return {
+            "calibration_ready": self.calibration_ready,
+            "calibration_failed": bool(self.calibration_status & CALIBRATION_FAILED),
+            "calibration_state": CALIBRATION_STATES.get(state, f"unknown_{state}"),
+            "calibration_status_raw": f"0x{self.calibration_status:08x}",
+            "calibration_init": bool(self.calibration_debug & 0x1),
+            "calibration_clock_done_mask": f"0x{(self.calibration_debug >> 3) & 0xF:x}",
+            "calibration_lane_done_mask": f"0x{(self.calibration_debug >> 7) & ((1 << 40) - 1):010x}",
+            "calibration_done": bool(self.calibration_debug & (1 << 47)),
+            "calibration_incomplete_lane_state": f"0x{(self.calibration_debug >> 48) & 0xFF:02x}",
+            "calibration_incomplete_lane_index": (self.calibration_incomplete >> 33) & 0x3F,
+            "calibration_incomplete_timeout": (self.calibration_incomplete >> 17) & 0xFFFF,
+            "calibration_incomplete_current_tap": (self.calibration_incomplete >> 8) & 0x1FF,
+            "calibration_incomplete_cdc": f"0x{self.calibration_incomplete & 0xFF:02x}",
+            "status_error": self.status_error,
+        }
+
+    def _calibration_summary(self) -> str:
+        options = self._calibration_options()
+        return (
+            f"status={options['calibration_status_raw']} state={options['calibration_state']} "
+            f"clock_done={options['calibration_clock_done_mask']} lane_done={options['calibration_lane_done_mask']} "
+            f"incomplete_lane={options['calibration_incomplete_lane_index']}"
+        )
