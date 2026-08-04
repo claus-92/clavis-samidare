@@ -270,6 +270,29 @@ def test_set_global_rejects_invalid_values() -> None:
     assert client.writes == []
 
 
+def test_set_global_rejects_clock_change_while_powered() -> None:
+    client = RecordingRegisterClient()
+    client.registers[PON_REGISTER] = 0xB1
+    board = make_board(client)
+    board.connect()
+
+    with pytest.raises(InvalidParameterError, match="powered off"):
+        board.set_global({"clock_source": "mikumari"})
+
+    assert client.writes == []
+
+
+def test_set_global_allows_clock_change_while_powered_off() -> None:
+    client = RecordingRegisterClient()
+    client.registers[PON_REGISTER] = 0xB0
+    board = make_board(client)
+    board.connect()
+
+    board.set_global({"clock_source": "mikumari"})
+
+    assert client.writes == [(PON_REGISTER, 0x8000B0)]
+
+
 def test_start_acquisition_requires_power() -> None:
     client = RecordingRegisterClient()
     board = make_board(client)

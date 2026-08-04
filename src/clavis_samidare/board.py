@@ -142,6 +142,9 @@ class SamidareBoard(AcquisitionBoard):
     def set_global(self, options: dict[str, Any]) -> None:
         self._require_connected()
         self._refresh_hardware_status()
+        requested_clock = options.get("clock_source")
+        if self.state.powered and requested_clock is not None and requested_clock != self.state.clock_source:
+            raise InvalidParameterError("clock_source can only be changed while SAMIDARE is powered off")
         try:
             self.state = update_state(self.state, options)
         except ValueError as exc:

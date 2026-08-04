@@ -19,10 +19,13 @@ sample-count, pretrigger, and clock-source controls. `clock_source` accepts
 `internal`, `gpio`, or `mikumari`. Group and channel parameters are not
 currently exposed.
 
-The normal sequence is connect, power on, wait for calibration, start and stop
-acquisition, power off, then disconnect. Power-on and acquisition operations
-write hardware registers; use only on a trusted network with the intended
-board and firmware.
+The normal sequence is connect, select the clock source while the board is
+powered off, power on, wait for calibration, start and stop acquisition, power
+off, then disconnect. Power-on starts calibration automatically. Changing the
+clock source while powered is rejected because switching a live application
+clock can reset or stall calibration. Power-on and acquisition operations write
+hardware registers; use only on a trusted network with the intended board and
+firmware.
 
 While connected, each status request reads the PON control, trigger-enable,
 calibration status, and calibration diagnostic registers. Power, acquisition,
