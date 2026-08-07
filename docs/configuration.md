@@ -11,8 +11,6 @@ accepts:
 | `timeout` | `0.1` | UDP timeout in seconds |
 | `power_settle_time` | `2.2` | Delay after enabling power |
 | `reset_settle_time` | `0.01` | Delay after SAMPA reset |
-| `calibration_timeout` | `15.0` | Maximum calibration wait |
-| `calibration_poll_interval` | `0.05` | Calibration polling interval |
 
 The current driver implements global trigger, threshold, polarity, gain,
 sample-count, pretrigger, and clock-source controls. `clock_source` accepts
@@ -20,12 +18,13 @@ sample-count, pretrigger, and clock-source controls. `clock_source` accepts
 currently exposed.
 
 The normal sequence is connect, select the clock source while the board is
-powered off, power on, wait for calibration, start and stop acquisition, power
-off, then disconnect. Power-on starts calibration automatically. Changing the
-clock source while powered is rejected because switching a live application
-clock can reset or stall calibration. Power-on and acquisition operations write
-hardware registers; use only on a trusted network with the intended board and
-firmware.
+powered off, power on, refresh status until calibration is ready, start and stop
+acquisition, power off, then disconnect. Power-on performs the required power
+settle and reset sequence, starts calibration, and returns without waiting for
+calibration to finish. Changing the clock source while powered is rejected
+because switching a live application clock can reset or stall calibration.
+Power-on and acquisition operations write hardware registers; use only on a
+trusted network with the intended board and firmware.
 
 While connected, each status request reads the PON control, trigger-enable,
 calibration status, and calibration diagnostic registers. Power, acquisition,
@@ -33,3 +32,6 @@ and control values therefore reflect the board rather than only the driver's
 previous writes. Disconnect closes only the control channel: it does not stop
 acquisition or power off the board. The last complete observation remains
 available with `status_fresh=false` until a successful reconnect and refresh.
+The CLI `boards status` command performs a manual refresh; the TUI refreshes
+automatically every two seconds. Acquisition start remains rejected until the
+refreshed status reports calibration ready.

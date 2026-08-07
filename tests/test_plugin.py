@@ -46,8 +46,6 @@ def make_board(client: FakeRegisterClient) -> SamidareBoard:
         client,
         power_settle_time=0,
         reset_settle_time=0,
-        calibration_timeout=0.01,
-        calibration_poll_interval=0,
     )
 
 
@@ -143,10 +141,10 @@ def test_disconnect_does_not_write_hardware_and_marks_status_stale() -> None:
     assert status.status_fresh is False
 
 
-def test_power_on_writes_pon_register() -> None:
+def test_power_on_starts_calibration_without_waiting_for_ready() -> None:
     client = RecordingRegisterClient()
     client.registers[PON_REGISTER] = 0xB0
-    client.registers[CALIBRATION_STATUS_REGISTER] = CALIBRATION_READY
+    client.registers[CALIBRATION_STATUS_REGISTER] = 2 << 1
     board = make_board(client)
     board.connect()
 
@@ -159,37 +157,43 @@ def test_power_on_writes_pon_register() -> None:
         (SAMPA_RESET_REGISTER, SAMPA_RESET_REQUEST),
         (DELAY_ADJUST_INIT_REGISTER, 1),
     ]
-    assert board.get_status().global_options["calibration_ready"] is True
+    options = board.get_status().global_options
+    assert options["calibration_ready"] is False
+    assert options["calibration_state"] == "signal_adjust"
 
 
-def test_power_on_reports_calibration_failure() -> None:
-    client = RecordingRegisterClient()
-    client.registers[CALIBRATION_STATUS_REGISTER] = CALIBRATION_FAILED
-    board = make_board(client)
-    board.connect()
-
-    with pytest.raises(BoardConnectionError, match="calibration failed"):
-        board.power_on()
-
-    assert client.writes[-1] == (DELAY_ADJUST_INIT_REGISTER, 1)
-    assert board.get_status().global_options["calibration_ready"] is False
-
-
-def test_power_on_reports_calibration_timeout() -> None:
+def test_status_refresh_reports_calibration_failure_after_power_on() -> None:
     client = RecordingRegisterClient()
     board = make_board(client)
     board.connect()
 
-    with pytest.raises(BoardConnectionError, match="calibration timed out"):
-        board.power_on()
+    board.power_on()
+    client.registers[CALIBRATION_STATUS_REGISTER] = CALIBRATION_FAILED | (3 << 1)
 
-    assert board.get_status().global_options["calibration_ready"] is False
+    options = board.get_status().global_options
+    assert options["calibration_ready"] is False
+    assert options["calibration_failed"] is True
+    assert options["calibration_state"] == "done"
+
+
+def test_status_refresh_reports_calibration_ready_after_power_on() -> None:
+    client = RecordingRegisterClient()
+    board = make_board(client)
+    board.connect()
+
+    board.power_on()
+    client.registers[CALIBRATION_STATUS_REGISTER] = CALIBRATION_READY | (3 << 1)
+
+    options = board.get_status().global_options
+    assert options["calibration_ready"] is True
+    assert options["calibration_failed"] is False
+    assert options["calibration_state"] == "done"
 
 
 def test_status_decodes_calibration_debug_registers() -> None:
     client = RecordingRegisterClient()
     debug = 1 | (3 << 1) | (0xA << 3) | (0x123456789A << 7) | (1 << 47) | (0x20 << 48)
-    incomplete = 0xA5 | (0x12A << 8) | (0xBEEF << 17) | (17 << 33)
+    incomplete = 0xA5 | (0x12A << 8) | (0xBEEF << 17) | (17 << 33) | (1 << 39)
     client.registers[CALIBRATION_STATUS_REGISTER] = CALIBRATION_READY | (3 << 1)
     client.registers[CALIBRATION_DEBUG_LOW_REGISTER] = debug & 0xFFFFFFFF
     client.registers[CALIBRATION_DEBUG_HIGH_REGISTER] = debug >> 32
@@ -210,6 +214,7 @@ def test_status_decodes_calibration_debug_registers() -> None:
     assert options["calibration_incomplete_timeout"] == 0xBEEF
     assert options["calibration_incomplete_current_tap"] == 0x12A
     assert options["calibration_incomplete_cdc"] == "0xa5"
+    assert options["calibration_controller_failed"] is True
 
 
 def test_status_refreshes_power_controls_and_acquisition_from_hardware() -> None:

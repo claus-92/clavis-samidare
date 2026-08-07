@@ -25,8 +25,6 @@ class SamidareBoard(AcquisitionBoard):
         *,
         power_settle_time: float = 2.2,
         reset_settle_time: float = 0.01,
-        calibration_timeout: float = 15.0,
-        calibration_poll_interval: float = 0.05,
     ) -> None:
         self.metadata = metadata
         self.client = client
@@ -40,8 +38,6 @@ class SamidareBoard(AcquisitionBoard):
         self.status_error: str | None = None
         self.power_settle_time = power_settle_time
         self.reset_settle_time = reset_settle_time
-        self.calibration_timeout = calibration_timeout
-        self.calibration_poll_interval = calibration_poll_interval
         self.state = SamidareControlState()
         self.group_options: dict[str, dict[str, Any]] = {}
         self.channel_options: dict[str, dict[str, Any]] = {}
@@ -94,7 +90,6 @@ class SamidareBoard(AcquisitionBoard):
         self.client.write_register(SAMPA_RESET_REGISTER, SAMPA_RESET_REQUEST)
         time.sleep(self.reset_settle_time)
         self.client.write_register(DELAY_ADJUST_INIT_REGISTER, 1)
-        self._wait_for_calibration()
 
     def power_off(self) -> None:
         self._require_connected()
@@ -179,22 +174,6 @@ class SamidareBoard(AcquisitionBoard):
     def _write_pon(self) -> None:
         self.client.write_register(PON_REGISTER, encode_pon(self.state))
 
-    def _wait_for_calibration(self) -> None:
-        deadline = time.monotonic() + self.calibration_timeout
-        last_status = 0
-        while time.monotonic() < deadline:
-            last_status = self.client.read_register(CALIBRATION_STATUS_REGISTER)
-            self.calibration_status = last_status
-            if last_status & CALIBRATION_FAILED:
-                self._refresh_hardware_status()
-                raise BoardConnectionError(f"SAMIDARE calibration failed: {self._calibration_summary()}")
-            if last_status & CALIBRATION_READY:
-                self._refresh_hardware_status()
-                return
-            time.sleep(self.calibration_poll_interval)
-        self._refresh_hardware_status()
-        raise BoardConnectionError(f"SAMIDARE calibration timed out: {self._calibration_summary()}")
-
     def _refresh_hardware_status(self) -> None:
         state = decode_pon(self.client.read_register(PON_REGISTER))
         acquiring = bool(self.client.read_register(TRIGGER_ENABLE_REGISTER) & 0x1)
@@ -228,6 +207,7 @@ class SamidareBoard(AcquisitionBoard):
             "calibration_incomplete_timeout": (self.calibration_incomplete >> 17) & 0xFFFF,
             "calibration_incomplete_current_tap": (self.calibration_incomplete >> 8) & 0x1FF,
             "calibration_incomplete_cdc": f"0x{self.calibration_incomplete & 0xFF:02x}",
+            "calibration_controller_failed": bool(self.calibration_incomplete & (1 << 39)),
             "status_error": self.status_error,
         }
 

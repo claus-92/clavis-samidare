@@ -46,15 +46,17 @@ priority if another controller has written multiple trigger bits.
 ## Calibration diagnostics
 
 Calibration debug bits include initialization, controller state, four clock
-done bits, 40 lane-done bits, aggregate done, and the first incomplete lane's
-one-hot state. Registers `0x5004` and `0x5005` are not a lane-failure bitmap;
-they expose the first incomplete lane's index, timeout counter, current tap,
-and CDC handshake state.
+done bits, 40 lane-done bits, aggregate done, and the selected lane's one-hot
+state. Registers `0x5004` and `0x5005` are not a lane-failure bitmap; they
+expose the selected lane's index, timeout counter, current tap, and CDC
+handshake state. Hardened firmware selects the first failed or incomplete lane
+and freezes lane state and progress when the controller reports failure.
 
-In this firmware revision, the lane FSM clears its `failed` output but never
-sets it. The aggregate calibration-failure status bit therefore cannot be
-asserted by a lane failure. Clavis decodes the bit correctly, but operators
-must use the incomplete-lane diagnostics when calibration does not complete.
+Older firmware revisions clear the lane `failed` output but never set it, so
+operators must use the incomplete-lane diagnostics when calibration does not
+complete. Hardened firmware additionally terminates stalled calibration with
+the aggregate failure bit and exposes the controller-failure flag as bit 39 of
+the combined `0x5004`/`0x5005` diagnostic value.
 
 Automated tests use injected fake register clients and loopback networking.
 They verify the software interpretation but do not replace compatibility tests

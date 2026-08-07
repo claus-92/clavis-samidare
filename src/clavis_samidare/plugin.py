@@ -42,8 +42,6 @@ def create_board(config: BaseModel) -> SamidareBoard:
         client,
         power_settle_time=samidare_config.power_settle_time,
         reset_settle_time=samidare_config.reset_settle_time,
-        calibration_timeout=samidare_config.calibration_timeout,
-        calibration_poll_interval=samidare_config.calibration_poll_interval,
     )
 
 
