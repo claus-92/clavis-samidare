@@ -2,7 +2,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 
-TRIGGERS = {"external", "self", "1khz", "1mhz"}
+TRIGGERS = {"external", "self", "1khz", "10khz"}
 POLARITIES = {"positive", "negative"}
 GAINS = {1, 2, 3}
 SAMPLES = {16, 32, 64, 128}
@@ -55,19 +55,17 @@ def update_state(state: SamidareControlState, options: dict[str, Any]) -> Samida
             updates[key] = _validate_string(key, value, CLOCK_SOURCES)
         else:
             raise ValueError(f"Unknown SAMIDARE control: {key}")
-    return replace(state, **updates)
+    updated = replace(state, **updates)
+    _validate_rate_window(updated)
+    return updated
 
 
 def encode_pon(state: SamidareControlState) -> int:
+    _validate_rate_window(state)
     value = 0
     if state.powered:
         value |= 1 << 0
-    if state.trigger == "self":
-        value |= 1 << 1
-    elif state.trigger == "1khz":
-        value |= 1 << 8
-    elif state.trigger == "1mhz":
-        value |= 1 << 9
+    value |= {"external": 0, "self": 1, "1khz": 2, "10khz": 3}[state.trigger] << 8
 
     value |= _sample_bits(state.samples) << 2
     cg0, cg1, cts = _gain_bits(state.gain)
@@ -83,13 +81,7 @@ def encode_pon(state: SamidareControlState) -> int:
 
 
 def decode_pon(value: int) -> SamidareControlState:
-    trigger = "external"
-    if value & (1 << 1):
-        trigger = "self"
-    elif value & (1 << 8):
-        trigger = "1khz"
-    elif value & (1 << 9):
-        trigger = "1mhz"
+    trigger = {0: "external", 1: "self", 2: "1khz", 3: "10khz"}[(value >> 8) & 0x3]
 
     return SamidareControlState(
         powered=bool(value & (1 << 0)),
@@ -154,3 +146,8 @@ def _pretrigger_bits(pretrigger: int) -> int:
 
 def _pretrigger_from_bits(bits: int) -> int:
     return {0: 0, 1: 4, 2: 8, 3: 16}[bits]
+
+
+def _validate_rate_window(state: SamidareControlState) -> None:
+    if state.trigger == "10khz" and state.samples + state.pretrigger > 32:
+        raise ValueError("10khz trigger requires samples + pretrigger <= 32")

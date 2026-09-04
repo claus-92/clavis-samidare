@@ -4,7 +4,7 @@
       "name": "trigger",
       "type": "string",
       "defaultValue": "external",
-      "options": ["external", "self", "1khz", "1mhz"],
+      "options": ["external", "self", "1khz", "10khz"],
       "description": "SAMIDARE trigger source"
     },
     {
@@ -35,14 +35,14 @@
       "type": "integer",
       "defaultValue": 16,
       "options": [16, 32, 64, 128],
-      "description": "Number of samples per event"
+      "description": "Samples from the always-included baseline frame"
     },
     {
       "name": "pretrigger",
       "type": "integer",
       "defaultValue": 0,
       "options": [0, 4, 8, 16],
-      "description": "Pretrigger sample setting"
+      "description": "Additional samples before the baseline frame; total event samples are samples + pretrigger"
     },
     {
       "name": "clock_source",

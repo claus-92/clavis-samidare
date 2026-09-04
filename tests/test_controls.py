@@ -19,17 +19,17 @@ def test_encode_full_pon_control_state() -> None:
         clock_source="gpio",
     )
 
-    assert encode_pon(state) == 0x61904B
+    assert encode_pon(state) == 0x619149
 
 
 def test_decode_pon_round_trips_supported_values() -> None:
     state = SamidareControlState(
         powered=True,
-        trigger="1mhz",
+        trigger="10khz",
         trigger_threshold=1023,
         polarity="negative",
         gain=2,
-        samples=128,
+        samples=16,
         pretrigger=16,
         clock_source="gpio",
     )
@@ -51,3 +51,6 @@ def test_update_state_validates_values() -> None:
 
     with pytest.raises(ValueError, match="gain"):
         update_state(SamidareControlState(), {"gain": 4})
+
+    with pytest.raises(ValueError, match="10khz"):
+        update_state(SamidareControlState(), {"trigger": "10khz", "samples": 32, "pretrigger": 4})

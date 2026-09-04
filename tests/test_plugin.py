@@ -1,14 +1,37 @@
 import pytest
-
-from clavis.clients.fakernet import FakernetRegisterClient
 from clavis.clients.fake import FakeRegisterClient
-from clavis.core.errors import BoardAlreadyAcquiringError, BoardConnectionError, BoardNotAcquiringError, BoardNotPoweredError, InvalidParameterError
+from clavis.clients.fakernet import FakernetRegisterClient
+from clavis.core.errors import (
+    BoardAlreadyAcquiringError,
+    BoardConnectionError,
+    BoardNotAcquiringError,
+    BoardNotPoweredError,
+    InvalidParameterError,
+)
 from clavis.schemas import BoardMetadata
 from clavis.transport.udp import UdpTransport
+
 from clavis_samidare.board import SamidareBoard
 from clavis_samidare.config import SamidareConfig
 from clavis_samidare.plugin import create_board, load_parameters, plugin
-from clavis_samidare.registers import CALIBRATION_DEBUG_HIGH_REGISTER, CALIBRATION_DEBUG_LOW_REGISTER, CALIBRATION_FAILED, CALIBRATION_INCOMPLETE_HIGH_REGISTER, CALIBRATION_INCOMPLETE_LOW_REGISTER, CALIBRATION_READY, CALIBRATION_STATUS_REGISTER, DELAY_ADJUST_INIT_REGISTER, PON_REGISTER, SAMPA_RESET_REGISTER, SAMPA_RESET_REQUEST, TRIGGER_ENABLE_REGISTER
+from clavis_samidare.registers import (
+    CAPTURE_ABI_MAGIC,
+    CAPTURE_ABI_REGISTER,
+    CALIBRATION_DEBUG_HIGH_REGISTER,
+    CALIBRATION_DEBUG_LOW_REGISTER,
+    CALIBRATION_DETAIL_STATUS_REGISTER,
+    CALIBRATION_FAILED,
+    CALIBRATION_FAILED_HIGH_REGISTER,
+    CALIBRATION_FAILED_LOW_REGISTER,
+    CALIBRATION_READY,
+    CALIBRATION_STATUS_REGISTER,
+    DELAY_ADJUST_INIT_REGISTER,
+    PON_REGISTER,
+    RECEIVER_STATUS_REGISTER,
+    SAMPA_RESET_REGISTER,
+    SAMPA_RESET_REQUEST,
+    TRIGGER_ENABLE_REGISTER,
+)
 
 
 class RecordingRegisterClient(FakeRegisterClient):
@@ -40,7 +63,15 @@ class ToggleReadFailureClient(RecordingRegisterClient):
         return super().read_register(address)
 
 
+class MissingDetailStatusClient(RecordingRegisterClient):
+    def read_register(self, address: int) -> int:
+        if address == CALIBRATION_DETAIL_STATUS_REGISTER:
+            raise KeyError("register 0x5007 is unavailable")
+        return super().read_register(address)
+
+
 def make_board(client: FakeRegisterClient) -> SamidareBoard:
+    client.registers.setdefault(CAPTURE_ABI_REGISTER, CAPTURE_ABI_MAGIC)
     return SamidareBoard(
         BoardMetadata(board_id="samidare-001", name="SAMIDARE", asic="SAMPA_v4", fpga="FPGA", firmware_version="unknown", board_type="samidare"),
         client,
@@ -159,7 +190,7 @@ def test_power_on_starts_calibration_without_waiting_for_ready() -> None:
     ]
     options = board.get_status().global_options
     assert options["calibration_ready"] is False
-    assert options["calibration_state"] == "signal_adjust"
+    assert options["calibration_state"] == "apply"
 
 
 def test_status_refresh_reports_calibration_failure_after_power_on() -> None:
@@ -173,7 +204,7 @@ def test_status_refresh_reports_calibration_failure_after_power_on() -> None:
     options = board.get_status().global_options
     assert options["calibration_ready"] is False
     assert options["calibration_failed"] is True
-    assert options["calibration_state"] == "done"
+    assert options["calibration_state"] == "lock"
 
 
 def test_status_refresh_reports_calibration_ready_after_power_on() -> None:
@@ -187,41 +218,82 @@ def test_status_refresh_reports_calibration_ready_after_power_on() -> None:
     options = board.get_status().global_options
     assert options["calibration_ready"] is True
     assert options["calibration_failed"] is False
-    assert options["calibration_state"] == "done"
+    assert options["calibration_state"] == "lock"
 
 
 def test_status_decodes_calibration_debug_registers() -> None:
     client = RecordingRegisterClient()
-    debug = 1 | (3 << 1) | (0xA << 3) | (0x123456789A << 7) | (1 << 47) | (0x20 << 48)
-    incomplete = 0xA5 | (0x12A << 8) | (0xBEEF << 17) | (17 << 33) | (1 << 39)
+    debug = (1 << 55) | (1 << 54) | (1 << 53) | (1 << 52) | (0xA << 48) | (0x5 << 44) | (0x3 << 40) | (2 << 38) | (1 << 37) | (1 << 36) | (0x12A << 27) | (0xABC << 15) | (0xD << 11) | 0x555
+    failed = (1 << 15) | (1 << 18) | (1 << 39)
+    receiver = 0xA | (0x5 << 4) | (0x2 << 8) | (0xC << 12) | (0x1 << 16)
+    detail = 0x6 | (0x9 << 4) | (0xA << 8) | (1 << 12) | (1 << 13) | (1 << 14) | (1 << 15) | (1 << 16) | (1 << 17)
     client.registers[CALIBRATION_STATUS_REGISTER] = CALIBRATION_READY | (3 << 1)
     client.registers[CALIBRATION_DEBUG_LOW_REGISTER] = debug & 0xFFFFFFFF
     client.registers[CALIBRATION_DEBUG_HIGH_REGISTER] = debug >> 32
-    client.registers[CALIBRATION_INCOMPLETE_LOW_REGISTER] = incomplete & 0xFFFFFFFF
-    client.registers[CALIBRATION_INCOMPLETE_HIGH_REGISTER] = incomplete >> 32
+    client.registers[CALIBRATION_FAILED_LOW_REGISTER] = failed & 0xFFFFFFFF
+    client.registers[CALIBRATION_FAILED_HIGH_REGISTER] = failed >> 32
+    client.registers[RECEIVER_STATUS_REGISTER] = receiver
+    client.registers[CALIBRATION_DETAIL_STATUS_REGISTER] = detail
     board = make_board(client)
     board.connect()
 
     options = board.get_status().global_options
 
-    assert options["calibration_state"] == "done"
-    assert options["calibration_init"] is True
-    assert options["calibration_clock_done_mask"] == "0xa"
-    assert options["calibration_lane_done_mask"] == "0x123456789a"
+    assert options["calibration_state"] == "lock"
+    assert options["calibration_debug_start"] is True
+    assert options["calibration_debug_idelay_ready"] is True
     assert options["calibration_done"] is True
-    assert options["calibration_incomplete_lane_state"] == "0x20"
-    assert options["calibration_incomplete_lane_index"] == 17
-    assert options["calibration_incomplete_timeout"] == 0xBEEF
-    assert options["calibration_incomplete_current_tap"] == 0x12A
-    assert options["calibration_incomplete_cdc"] == "0xa5"
-    assert options["calibration_controller_failed"] is True
+    assert options["calibration_debug_failed"] is True
+    assert options["calibration_debug_clock_failed_mask"] == "0xa"
+    assert options["calibration_debug_locked_mask"] == "0x5"
+    assert options["calibration_debug_sync_error_mask"] == "0x3"
+    assert options["calibration_debug_state"] == "apply"
+    assert options["calibration_sweep_done"] is True
+    assert options["calibration_measure_valid"] is True
+    assert options["calibration_sweep_tap_index"] == 0x12A
+    assert options["calibration_lock_state"] == "0xabc"
+    assert options["calibration_epoch_sync_debug_mask"] == "0xd"
+    assert options["calibration_data_done_mask"] == "0x555"
+    assert options["calibration_failed_lane_mask"] == "0x8000048000"
+    assert options["calibration_failed_lanes"] == [15, 18, 39]
+    assert options["calibration_failed_chip_bits"] == ["1:5", "1:8", "3:9"]
+    assert options["receiver_locked_mask"] == "0xa"
+    assert options["receiver_trigger_pending_mask"] == "0x5"
+    assert options["receiver_sync_error_mask"] == "0x2"
+    assert options["receiver_fifo_empty_mask"] == "0xc"
+    assert options["receiver_fifo_full_mask"] == "0x1"
+    assert options["calibration_detail_status_available"] is True
+    assert options["calibration_detail_status_raw"] == "0x0003fa96"
+    assert options["calibration_locked_mask"] == "0x6"
+    assert options["calibration_sync_error_mask"] == "0x9"
+    assert options["calibration_clock_failed_mask"] == "0xa"
+    assert options["calibration_idelay_ready"] is True
+    assert options["calibration_active"] is True
+    assert options["calibration_trigger_enabled"] is True
+    assert options["calibration_start"] is True
+    assert options["calibration_terminal_valid"] is True
+    assert options["calibration_terminal_failed"] is True
+
+
+def test_status_allows_firmware_without_calibration_detail_status() -> None:
+    client = MissingDetailStatusClient()
+    board = make_board(client)
+
+    board.connect()
+
+    options = board.get_status().global_options
+    assert options["calibration_detail_status_available"] is False
+    assert options["calibration_detail_status_raw"] is None
+    assert options["calibration_locked_mask"] is None
+    assert options["calibration_terminal_valid"] is None
+    assert options["calibration_terminal_failed"] is None
 
 
 def test_status_refreshes_power_controls_and_acquisition_from_hardware() -> None:
     client = RecordingRegisterClient()
     board = make_board(client)
     board.connect()
-    client.registers[PON_REGISTER] = 0x61904B
+    client.registers[PON_REGISTER] = 0x619149
     client.registers[TRIGGER_ENABLE_REGISTER] = 1
 
     status = board.get_status()
@@ -260,7 +332,7 @@ def test_set_global_updates_pon_register() -> None:
 
     board.set_global({"trigger": "self", "trigger_threshold": 100, "samples": 64})
 
-    assert client.writes[-1] == (PON_REGISTER, 0x190BB)
+    assert client.writes[-1] == (PON_REGISTER, 0x191B9)
     assert board.get_status().global_options["trigger"] == "self"
 
 
