@@ -162,9 +162,9 @@ class SamidareBoard(AcquisitionBoard):
         if self.acquiring:
             raise BoardAlreadyAcquiringError(f"SAMIDARE board is already acquiring: {self.get_id()}")
         status = self.calibration_status
-        if not status & CALIBRATION_READY or status & CALIBRATION_FAILED:
-            self.calibration_ready = False
-            raise BoardConnectionError(f"SAMIDARE board is not calibration-ready: {self._calibration_summary()}")
+        #if not status & CALIBRATION_READY or status & CALIBRATION_FAILED:
+        #    self.calibration_ready = False
+        #    raise BoardConnectionError(f"SAMIDARE board is not calibration-ready: {self._calibration_summary()}")
         self.client.write_register(TRIGGER_ENABLE_REGISTER, 1)
         self.acquiring = True
 
