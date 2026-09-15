@@ -2,14 +2,18 @@
 
 The plugin targets SAMIDARE with SAMPA v4 and uses Fakernet word-register access
 over UDP. The map follows the SAMIDARE capture ABI identified by magic value
-`0x53414d32` (`SAM2`). Fakernet addresses are word addresses; the
+`0x53414d33` (`SAM3`). Fakernet addresses are word addresses; the
 firmware bridge appends two zero bits for AXI byte addressing.
 
 ## Register map
 
 | Address | Access | Meaning |
 |---:|---|---|
-| `0x0500` | R/W | Physical trigger and acquisition enable in bit 0 |
+| `0x0500` | R/W | Acquisition arm: `0` disarm, `1` arm |
+| `0x0501` | R/W | Start source: `0` local Fakernet, `1` GPIO0 |
+| `0x0502` | R/W | Event source: `0` GPIO1, `2` self, `3` 1 kHz, `4` 10 kHz |
+| `0x0503` | W1P | Local Fakernet start strobe |
+| `0x0504` | R | Run status: state, receiver ready, primed, armed, fault, active |
 | `0x0800` | R/W | PON power and global control word |
 | `0x1000` | R/W | Delay-adjust calibration initialization in bit 0 |
 | `0x5000` | W | SAMPA software-reset request pulse in bit 1 |
@@ -20,7 +24,7 @@ firmware bridge appends two zero bits for AXI byte addressing.
 | `0x5005` | R | Failed data-lane mask bits 39:32, zero-extended |
 | `0x5006` | R | Receiver lock, trigger, sync-error, and FIFO status |
 | `0x5007` | R | Phase-5 calibration lock, error, and activity status (if implemented) |
-| `0x5008` | R | Capture ABI magic; must equal `0x53414d32` for PON v2 writes |
+| `0x5008` | R | Capture ABI magic; must equal `0x53414d33` for SAM3 control writes |
 | `0x5009` | R | Capture status and sticky fault summary |
 | `0x500a` | R | Accepted-trigger counter |
 | `0x500b` | R | Trigger requests rejected while busy |
@@ -28,9 +32,10 @@ firmware bridge appends two zero bits for AXI byte addressing.
 | `0x500d` | R | Event-FIFO-capacity drop counter |
 | `0x500e` | W | Write bit 0 to clear capture counters/sticky faults |
 
-The active firmware has no acquisition-start register at `0x05`. Acquisition
-is enabled by writing bit 0 of `0x0500`; the firmware gates that request with
-calibration-ready and application-ready signals.
+Source configuration is accepted only while disarmed. Arm at `0x0500`; when
+using the local start source, write `1` to `0x0503` after arming. GPIO0 starts
+on a rising edge. Event requests are enabled only after the capture history is
+primed.
 
 ## PON control word
 
@@ -41,16 +46,13 @@ calibration-ready and application-ready signals.
 | `3:2` | Sample count: 16, 32, 64, or 128 |
 | `6:4` | Gain/shaping control bits CG0, CG1, CTS |
 | `7` | Negative polarity |
-| `9:8` | Trigger mode: external, self, 1 kHz, or 10 kHz |
-| `19:10` | Trigger threshold |
+| `9:8` | Retired; must be zero |
+| `19:10` | Self-trigger threshold |
 | `21:20` | Pretrigger selection |
 | `23:22` | Clock source: internal, GPIO, Mikumari, or invalid |
 
-The trigger field is mutually exclusive: `00=external`, `01=self`, `10=1 kHz`,
-and `11=10 kHz`. The 10 kHz mode is allowed only when the configured base plus
-pretrigger window is at most 32 samples. The plugin verifies the ABI magic
-before writing this field, preventing an old bitstream from interpreting the
-new encoding as the former independent trigger enables.
+Start and event source selection are independent of PON. The plugin verifies
+the SAM3 ABI before writing any PON or source-control register.
 
 Capture status `0x5009` uses bit 0 for busy, bits 2:1 for active trigger mode,
 bit 3 for an invalid 10 kHz/window combination, bits 4 and 5 for expired-window

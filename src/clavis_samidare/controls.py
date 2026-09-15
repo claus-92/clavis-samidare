@@ -2,7 +2,8 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 
-TRIGGERS = {"external", "self", "1khz", "10khz"}
+START_SOURCES = {"local", "gpio0"}
+EVENT_SOURCES = {"gpio1", "self", "1khz", "10khz"}
 POLARITIES = {"positive", "negative"}
 GAINS = {1, 2, 3}
 SAMPLES = {16, 32, 64, 128}
@@ -13,7 +14,8 @@ CLOCK_SOURCES = {"internal", "gpio", "mikumari"}
 @dataclass(frozen=True)
 class SamidareControlState:
     powered: bool = False
-    trigger: str = "external"
+    start_source: str = "local"
+    event_source: str = "gpio1"
     trigger_threshold: int = 0
     polarity: str = "negative"
     gain: int = 1
@@ -23,7 +25,8 @@ class SamidareControlState:
 
     def as_options(self) -> dict[str, Any]:
         return {
-            "trigger": self.trigger,
+            "start_source": self.start_source,
+            "event_source": self.event_source,
             "trigger_threshold": self.trigger_threshold,
             "polarity": self.polarity,
             "gain": self.gain,
@@ -36,8 +39,10 @@ class SamidareControlState:
 def update_state(state: SamidareControlState, options: dict[str, Any]) -> SamidareControlState:
     updates: dict[str, Any] = {}
     for key, value in options.items():
-        if key == "trigger":
-            updates[key] = _validate_string(key, value, TRIGGERS)
+        if key == "start_source":
+            updates[key] = _validate_string(key, value, START_SOURCES)
+        elif key == "event_source":
+            updates[key] = _validate_string(key, value, EVENT_SOURCES)
         elif key == "trigger_threshold":
             threshold = _validate_int(key, value)
             if threshold < 0 or threshold > 1023:
@@ -65,8 +70,6 @@ def encode_pon(state: SamidareControlState) -> int:
     value = 0
     if state.powered:
         value |= 1 << 0
-    value |= {"external": 0, "self": 1, "1khz": 2, "10khz": 3}[state.trigger] << 8
-
     value |= _sample_bits(state.samples) << 2
     cg0, cg1, cts = _gain_bits(state.gain)
     value |= cg0 << 4
@@ -81,11 +84,8 @@ def encode_pon(state: SamidareControlState) -> int:
 
 
 def decode_pon(value: int) -> SamidareControlState:
-    trigger = {0: "external", 1: "self", 2: "1khz", 3: "10khz"}[(value >> 8) & 0x3]
-
     return SamidareControlState(
         powered=bool(value & (1 << 0)),
-        trigger=trigger,
         trigger_threshold=(value >> 10) & 0x3FF,
         polarity="negative" if value & (1 << 7) else "positive",
         gain=_gain_from_bits((value >> 4) & 0x1, (value >> 5) & 0x1, (value >> 6) & 0x1),
@@ -149,5 +149,5 @@ def _pretrigger_from_bits(bits: int) -> int:
 
 
 def _validate_rate_window(state: SamidareControlState) -> None:
-    if state.trigger == "10khz" and state.samples + state.pretrigger > 32:
+    if state.event_source == "10khz" and state.samples + state.pretrigger > 32:
         raise ValueError("10khz trigger requires samples + pretrigger <= 32")

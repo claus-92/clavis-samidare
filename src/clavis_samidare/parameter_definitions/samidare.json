@@ -1,11 +1,18 @@
 {
   "generalParameters": [
     {
-      "name": "trigger",
+      "name": "start_source",
       "type": "string",
-      "defaultValue": "external",
-      "options": ["external", "self", "1khz", "10khz"],
-      "description": "SAMIDARE trigger source"
+      "defaultValue": "local",
+      "options": ["local", "gpio0"],
+      "description": "Run-start source"
+    },
+    {
+      "name": "event_source",
+      "type": "string",
+      "defaultValue": "gpio1",
+      "options": ["gpio1", "self", "1khz", "10khz"],
+      "description": "Event-trigger source"
     },
     {
       "name": "trigger_threshold",

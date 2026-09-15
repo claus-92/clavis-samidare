@@ -15,6 +15,7 @@ from clavis_samidare.board import SamidareBoard
 from clavis_samidare.config import SamidareConfig
 from clavis_samidare.plugin import create_board, load_parameters, plugin
 from clavis_samidare.registers import (
+    ACQUISITION_ARM_REGISTER,
     CAPTURE_ABI_MAGIC,
     CAPTURE_ABI_REGISTER,
     CALIBRATION_DEBUG_HIGH_REGISTER,
@@ -26,11 +27,15 @@ from clavis_samidare.registers import (
     CALIBRATION_READY,
     CALIBRATION_STATUS_REGISTER,
     DELAY_ADJUST_INIT_REGISTER,
+    EVENT_SOURCE_REGISTER,
     PON_REGISTER,
     RECEIVER_STATUS_REGISTER,
+    RUN_ACTIVE,
+    RUN_ARMED,
+    RUN_STATUS_REGISTER,
     SAMPA_RESET_REGISTER,
     SAMPA_RESET_REQUEST,
-    TRIGGER_ENABLE_REGISTER,
+    START_SOURCE_REGISTER,
 )
 
 
@@ -88,7 +93,7 @@ def test_plugin_describes_samidare_board_type() -> None:
 
 def test_parameters_load() -> None:
     parameters = load_parameters()
-    assert parameters.generalParameters[0].name == "trigger"
+    assert parameters.generalParameters[0].name == "start_source"
     threshold = next(parameter for parameter in parameters.generalParameters if parameter.name == "trigger_threshold")
     assert threshold.minimum == 0
     assert threshold.maximum == 1023
@@ -158,7 +163,7 @@ def test_disconnect_preserves_last_hardware_state_when_client_close_fails() -> N
 def test_disconnect_does_not_write_hardware_and_marks_status_stale() -> None:
     client = RecordingRegisterClient()
     client.registers[PON_REGISTER] = 0xB1
-    client.registers[TRIGGER_ENABLE_REGISTER] = 1
+    client.registers[RUN_STATUS_REGISTER] = RUN_ARMED | RUN_ACTIVE
     board = make_board(client)
     board.connect()
 
@@ -182,7 +187,7 @@ def test_power_on_starts_calibration_without_waiting_for_ready() -> None:
     board.power_on()
 
     assert client.writes == [
-        (TRIGGER_ENABLE_REGISTER, 0),
+        (ACQUISITION_ARM_REGISTER, 0),
         (DELAY_ADJUST_INIT_REGISTER, 0),
         (PON_REGISTER, 0xB1),
         (SAMPA_RESET_REGISTER, SAMPA_RESET_REQUEST),
@@ -294,14 +299,15 @@ def test_status_refreshes_power_controls_and_acquisition_from_hardware() -> None
     board = make_board(client)
     board.connect()
     client.registers[PON_REGISTER] = 0x619149
-    client.registers[TRIGGER_ENABLE_REGISTER] = 1
+    client.registers[RUN_STATUS_REGISTER] = RUN_ARMED | RUN_ACTIVE
+    client.registers[EVENT_SOURCE_REGISTER] = 2
 
     status = board.get_status()
 
     assert status.status_fresh is True
     assert status.powered is True
     assert status.acquiring is True
-    assert status.global_options["trigger"] == "self"
+    assert status.global_options["event_source"] == "self"
     assert status.global_options["trigger_threshold"] == 100
     assert status.global_options["clock_source"] == "gpio"
 
@@ -309,7 +315,7 @@ def test_status_refreshes_power_controls_and_acquisition_from_hardware() -> None
 def test_failed_status_refresh_preserves_last_complete_snapshot() -> None:
     client = ToggleReadFailureClient()
     client.registers[PON_REGISTER] = 0xB1
-    client.registers[TRIGGER_ENABLE_REGISTER] = 1
+    client.registers[RUN_STATUS_REGISTER] = RUN_ARMED | RUN_ACTIVE
     board = make_board(client)
     board.connect()
     client.fail_reads = True
@@ -330,10 +336,10 @@ def test_set_global_updates_pon_register() -> None:
     board.connect()
     board.power_on()
 
-    board.set_global({"trigger": "self", "trigger_threshold": 100, "samples": 64})
+    board.set_global({"event_source": "self", "trigger_threshold": 100, "samples": 64})
 
-    assert client.writes[-1] == (PON_REGISTER, 0x191B9)
-    assert board.get_status().global_options["trigger"] == "self"
+    assert client.writes[-1] == (EVENT_SOURCE_REGISTER, 2)
+    assert board.get_status().global_options["event_source"] == "self"
 
 
 def test_set_global_rejects_invalid_values() -> None:
@@ -367,7 +373,11 @@ def test_set_global_allows_clock_change_while_powered_off() -> None:
 
     board.set_global({"clock_source": "mikumari"})
 
-    assert client.writes == [(PON_REGISTER, 0x8000B0)]
+    assert client.writes == [
+        (PON_REGISTER, 0x8000B0),
+        (START_SOURCE_REGISTER, 0),
+        (EVENT_SOURCE_REGISTER, 0),
+    ]
 
 
 def test_start_acquisition_requires_power() -> None:
@@ -395,6 +405,9 @@ def test_start_stop_acquisition_writes_trigger_enable() -> None:
         board.stop_acquisition()
 
     assert client.writes == [
-        (TRIGGER_ENABLE_REGISTER, 1),
-        (TRIGGER_ENABLE_REGISTER, 0),
+        (START_SOURCE_REGISTER, 0),
+        (EVENT_SOURCE_REGISTER, 0),
+        (ACQUISITION_ARM_REGISTER, 1),
+        (0x503, 1),
+        (ACQUISITION_ARM_REGISTER, 0),
     ]
