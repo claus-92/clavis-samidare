@@ -14,14 +14,18 @@ accepts:
 
 The current driver implements global start-source, event-source, threshold,
 polarity, gain, sample-count, pretrigger, and clock-source controls.
-`start_source` accepts `local` or `gpio0`; `event_source` accepts `gpio1`,
-`self`, `1khz`, or `10khz`. `clock_source` accepts
+`start_source` accepts `local`, `gpio0`, or `mikumari`; `event_source` accepts
+`gpio1`, `mikumari`, `self`, or `1khz`. `mikumari` selects the LACCP pulse
+distributed over the Mikumari link. `clock_source` accepts
 `internal`, `gpio`, or `mikumari`. Group and channel parameters are not
 currently exposed.
 
 The normal sequence is connect, select sources and clock while disarmed, power
-on, arm/start and stop acquisition, then refresh status until the receiver is
-ready, power off, then disconnect. Power-on performs the required power
+on, arm acquisition, then start it if `start_source` is `local`. With `gpio0` or
+`mikumari` selected, arming waits for the selected external pulse instead; a
+Fakernet start request is rejected for those sources. Stop disarms acquisition.
+Refresh status until receiver-ready after arming and confirm run-active after
+starting, then power off and disconnect. Power-on performs the required power
 settle and reset sequence, starts calibration, and returns without waiting for
 calibration to finish. Changing the clock source while powered is rejected
 because switching a live application clock can reset or stall calibration.

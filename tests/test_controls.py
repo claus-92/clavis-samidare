@@ -26,7 +26,7 @@ def test_encode_full_pon_control_state() -> None:
 def test_decode_pon_round_trips_supported_values() -> None:
     state = SamidareControlState(
         powered=True,
-        event_source="10khz",
+        event_source="mikumari",
         trigger_threshold=1023,
         polarity="negative",
         gain=2,
@@ -60,5 +60,15 @@ def test_update_state_validates_values() -> None:
     with pytest.raises(ValueError, match="gain"):
         update_state(SamidareControlState(), {"gain": 4})
 
-    with pytest.raises(ValueError, match="10khz"):
-        update_state(SamidareControlState(), {"event_source": "10khz", "samples": 32, "pretrigger": 4})
+    with pytest.raises(ValueError, match="event_source"):
+        update_state(SamidareControlState(), {"event_source": "10khz"})
+
+
+def test_mikumari_is_valid_for_start_and_event_sources() -> None:
+    state = update_state(
+        SamidareControlState(),
+        {"start_source": "mikumari", "event_source": "mikumari"},
+    )
+
+    assert state.start_source == "mikumari"
+    assert state.event_source == "mikumari"

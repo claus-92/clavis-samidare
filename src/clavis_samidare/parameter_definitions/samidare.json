@@ -4,14 +4,14 @@
       "name": "start_source",
       "type": "string",
       "defaultValue": "local",
-      "options": ["local", "gpio0"],
+      "options": ["local", "gpio0", "mikumari"],
       "description": "Run-start source"
     },
     {
       "name": "event_source",
       "type": "string",
       "defaultValue": "gpio1",
-      "options": ["gpio1", "self", "1khz", "10khz"],
+      "options": ["gpio1", "mikumari", "self", "1khz"],
       "description": "Event-trigger source"
     },
     {

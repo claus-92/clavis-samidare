@@ -10,8 +10,8 @@ firmware bridge appends two zero bits for AXI byte addressing.
 | Address | Access | Meaning |
 |---:|---|---|
 | `0x0500` | R/W | Acquisition arm: `0` disarm, `1` arm |
-| `0x0501` | R/W | Start source: `0` local Fakernet, `1` GPIO0 |
-| `0x0502` | R/W | Event source: `0` GPIO1, `2` self, `3` 1 kHz, `4` 10 kHz |
+| `0x0501` | R/W | Start source: `0` local Fakernet, `1` GPIO0, `2` Mikumari/LACCP |
+| `0x0502` | R/W | Event source: `0` GPIO1, `1` Mikumari/LACCP, `2` self, `3` 1 kHz |
 | `0x0503` | W1P | Local Fakernet start strobe |
 | `0x0504` | R | Run status: state, receiver ready, primed, armed, fault, active |
 | `0x0800` | R/W | PON power and global control word |
@@ -32,10 +32,13 @@ firmware bridge appends two zero bits for AXI byte addressing.
 | `0x500d` | R | Event-FIFO-capacity drop counter |
 | `0x500e` | W | Write bit 0 to clear capture counters/sticky faults |
 
-Source configuration is accepted only while disarmed. Arm at `0x0500`; when
-using the local start source, write `1` to `0x0503` after arming. GPIO0 starts
-on a rising edge. Event requests are enabled only after the capture history is
-primed.
+Source configuration is accepted only while disarmed. Arm at `0x0500` and wait
+for receiver-ready. With the local start source selected, a separate Start
+operation writes `1` to `0x0503`; with GPIO0 or Mikumari/LACCP selected, the
+corresponding external pulse starts the run and a Fakernet start request is
+invalid. Select Mikumari/LACCP as the event source to use its distributed
+trigger pulse for events. Event requests are enabled only after the capture
+history is primed.
 
 ## PON control word
 
@@ -55,8 +58,9 @@ Start and event source selection are independent of PON. The plugin verifies
 the SAM3 ABI before writing any PON or source-control register.
 
 Capture status `0x5009` uses bit 0 for busy, bits 2:1 for active trigger mode,
-bit 3 for an invalid 10 kHz/window combination, bits 4 and 5 for expired-window
-and FIFO-capacity-drop sticky indications, and bit 6 for current FIFO capacity.
+bit 3 for invalid-rate status (currently tied low in the documented firmware),
+bits 4 and 5 for expired-window and FIFO-capacity-drop sticky indications, and
+bit 6 for current FIFO capacity.
 
 ## Calibration diagnostics
 

@@ -28,10 +28,13 @@ from clavis_samidare.registers import (
     CALIBRATION_STATUS_REGISTER,
     DELAY_ADJUST_INIT_REGISTER,
     EVENT_SOURCE_REGISTER,
+    LOCAL_START_REGISTER,
     PON_REGISTER,
     RECEIVER_STATUS_REGISTER,
     RUN_ACTIVE,
     RUN_ARMED,
+    RUN_CAPTURE_PRIMED,
+    RUN_RECEIVER_READY,
     RUN_STATUS_REGISTER,
     SAMPA_RESET_REGISTER,
     SAMPA_RESET_REQUEST,
@@ -47,6 +50,14 @@ class RecordingRegisterClient(FakeRegisterClient):
     def write_register(self, address: int, value: int) -> None:
         self.writes.append((address, value))
         super().write_register(address, value)
+        if address == ACQUISITION_ARM_REGISTER:
+            self.registers[RUN_STATUS_REGISTER] = (
+                1 | RUN_RECEIVER_READY | RUN_ARMED if value else 0
+            )
+        elif address == LOCAL_START_REGISTER and value & 1:
+            self.registers[RUN_STATUS_REGISTER] = (
+                2 | RUN_RECEIVER_READY | RUN_CAPTURE_PRIMED | RUN_ARMED | RUN_ACTIVE
+            )
 
 
 class FailingOpenClient(FakeRegisterClient):
@@ -94,6 +105,10 @@ def test_plugin_describes_samidare_board_type() -> None:
 def test_parameters_load() -> None:
     parameters = load_parameters()
     assert parameters.generalParameters[0].name == "start_source"
+    start_source = parameters.generalParameters[0]
+    event_source = parameters.generalParameters[1]
+    assert start_source.options == ["local", "gpio0", "mikumari"]
+    assert event_source.options == ["gpio1", "mikumari", "self", "1khz"]
     threshold = next(parameter for parameter in parameters.generalParameters if parameter.name == "trigger_threshold")
     assert threshold.minimum == 0
     assert threshold.maximum == 1023
@@ -312,6 +327,33 @@ def test_status_refreshes_power_controls_and_acquisition_from_hardware() -> None
     assert status.global_options["clock_source"] == "gpio"
 
 
+def test_status_decodes_mikumari_start_and_event_sources() -> None:
+    client = RecordingRegisterClient()
+    client.registers[START_SOURCE_REGISTER] = 2
+    client.registers[EVENT_SOURCE_REGISTER] = 1
+    board = make_board(client)
+    board.connect()
+
+    status = board.get_status()
+
+    assert status.global_options["start_source"] == "mikumari"
+    assert status.global_options["event_source"] == "mikumari"
+
+
+def test_set_global_encodes_mikumari_start_and_event_sources() -> None:
+    client = RecordingRegisterClient()
+    client.registers[PON_REGISTER] = 0xB0
+    board = make_board(client)
+    board.connect()
+
+    board.set_global({"start_source": "mikumari", "event_source": "mikumari"})
+
+    assert client.writes[-2:] == [
+        (START_SOURCE_REGISTER, 2),
+        (EVENT_SOURCE_REGISTER, 1),
+    ]
+
+
 def test_failed_status_refresh_preserves_last_complete_snapshot() -> None:
     client = ToggleReadFailureClient()
     client.registers[PON_REGISTER] = 0xB1
@@ -380,16 +422,16 @@ def test_set_global_allows_clock_change_while_powered_off() -> None:
     ]
 
 
-def test_start_acquisition_requires_power() -> None:
+def test_arm_acquisition_requires_power() -> None:
     client = RecordingRegisterClient()
     board = make_board(client)
     board.connect()
 
     with pytest.raises(BoardNotPoweredError):
-        board.start_acquisition()
+        board.arm_acquisition()
 
 
-def test_start_stop_acquisition_writes_trigger_enable() -> None:
+def test_arm_local_start_and_stop_are_separate_operations() -> None:
     client = RecordingRegisterClient()
     client.registers[CALIBRATION_STATUS_REGISTER] = CALIBRATION_READY
     board = make_board(client)
@@ -397,6 +439,9 @@ def test_start_stop_acquisition_writes_trigger_enable() -> None:
     board.power_on()
     client.writes.clear()
 
+    board.arm_acquisition()
+    assert (ACQUISITION_ARM_REGISTER, 1) in client.writes
+    assert (LOCAL_START_REGISTER, 1) not in client.writes
     board.start_acquisition()
     with pytest.raises(BoardAlreadyAcquiringError):
         board.start_acquisition()
@@ -408,6 +453,22 @@ def test_start_stop_acquisition_writes_trigger_enable() -> None:
         (START_SOURCE_REGISTER, 0),
         (EVENT_SOURCE_REGISTER, 0),
         (ACQUISITION_ARM_REGISTER, 1),
-        (0x503, 1),
+        (LOCAL_START_REGISTER, 1),
         (ACQUISITION_ARM_REGISTER, 0),
     ]
+
+
+@pytest.mark.parametrize("start_source", ["gpio0", "mikumari"])
+def test_start_requires_local_source(start_source: str) -> None:
+    client = RecordingRegisterClient()
+    client.registers[CALIBRATION_STATUS_REGISTER] = CALIBRATION_READY
+    board = make_board(client)
+    board.connect()
+    board.power_on()
+    board.set_global({"start_source": start_source})
+    board.arm_acquisition()
+
+    with pytest.raises(InvalidParameterError, match="start_source='local'"):
+        board.start_acquisition()
+
+    assert (LOCAL_START_REGISTER, 1) not in client.writes

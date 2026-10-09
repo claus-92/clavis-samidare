@@ -2,8 +2,8 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 
-START_SOURCES = {"local", "gpio0"}
-EVENT_SOURCES = {"gpio1", "self", "1khz", "10khz"}
+START_SOURCES = {"local", "gpio0", "mikumari"}
+EVENT_SOURCES = {"gpio1", "mikumari", "self", "1khz"}
 POLARITIES = {"positive", "negative"}
 GAINS = {1, 2, 3}
 SAMPLES = {16, 32, 64, 128}
@@ -60,13 +60,10 @@ def update_state(state: SamidareControlState, options: dict[str, Any]) -> Samida
             updates[key] = _validate_string(key, value, CLOCK_SOURCES)
         else:
             raise ValueError(f"Unknown SAMIDARE control: {key}")
-    updated = replace(state, **updates)
-    _validate_rate_window(updated)
-    return updated
+    return replace(state, **updates)
 
 
 def encode_pon(state: SamidareControlState) -> int:
-    _validate_rate_window(state)
     value = 0
     if state.powered:
         value |= 1 << 0
@@ -146,8 +143,3 @@ def _pretrigger_bits(pretrigger: int) -> int:
 
 def _pretrigger_from_bits(bits: int) -> int:
     return {0: 0, 1: 4, 2: 8, 3: 16}[bits]
-
-
-def _validate_rate_window(state: SamidareControlState) -> None:
-    if state.event_source == "10khz" and state.samples + state.pretrigger > 32:
-        raise ValueError("10khz trigger requires samples + pretrigger <= 32")

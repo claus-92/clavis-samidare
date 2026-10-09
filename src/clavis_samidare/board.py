@@ -139,6 +139,7 @@ class SamidareBoard(AcquisitionBoard):
         self._refresh_hardware_status()
         self.client.write_register(ACQUISITION_ARM_REGISTER, 0)
         self.acquiring = False
+        self.armed = False
         self.client.write_register(DELAY_ADJUST_INIT_REGISTER, 0)
         self.calibration_ready = False
         self.calibration_status = 0
@@ -160,6 +161,7 @@ class SamidareBoard(AcquisitionBoard):
         self.client.write_register(ACQUISITION_ARM_REGISTER, 0)
         self.client.write_register(DELAY_ADJUST_INIT_REGISTER, 0)
         self.acquiring = False
+        self.armed = False
         self.calibration_ready = False
         self.calibration_status = 0
         self.calibration_debug = 0
@@ -169,21 +171,34 @@ class SamidareBoard(AcquisitionBoard):
         self.state = SamidareControlState(**{**self.state.__dict__, "powered": False})
         self._write_pon()
 
-    def start_acquisition(self) -> None:
+    def arm_acquisition(self) -> None:
         self._require_connected()
-        if self.armed:
-            raise BoardAlreadyAcquiringError(f"SAMIDARE board is already acquiring: {self.get_id()}")
         self._refresh_hardware_status()
+        if self.armed:
+            raise BoardAlreadyAcquiringError(f"SAMIDARE board is already armed: {self.get_id()}")
         if not self.state.powered:
             raise BoardNotPoweredError(f"SAMIDARE board is not powered: {self.get_id()}")
-        if self.armed:
-            raise BoardAlreadyAcquiringError(f"SAMIDARE board is already acquiring: {self.get_id()}")
         self._write_sources()
         self.client.write_register(ACQUISITION_ARM_REGISTER, 1)
         self.armed = True
-        if self.state.start_source == "local":
-            self.client.write_register(LOCAL_START_REGISTER, 1)
-            self.acquiring = True
+
+    def start_acquisition(self) -> None:
+        self._require_connected()
+        self._refresh_hardware_status()
+        if not self.state.powered:
+            raise BoardNotPoweredError(f"SAMIDARE board is not powered: {self.get_id()}")
+        if not self.armed:
+            raise BoardNotAcquiringError(f"SAMIDARE board is not armed: {self.get_id()}")
+        if self.acquiring:
+            raise BoardAlreadyAcquiringError(f"SAMIDARE board is already running: {self.get_id()}")
+        if self.state.start_source != "local":
+            raise InvalidParameterError(
+                "A Fakernet start request requires start_source='local'; the selected external source starts the run"
+            )
+        if not self.receiver_ready:
+            raise InvalidParameterError("SAMIDARE receiver is not ready; wait for receiver-ready status before starting")
+        self.client.write_register(LOCAL_START_REGISTER, 1)
+        self._refresh_hardware_status()
 
     def stop_acquisition(self) -> None:
         self._require_connected()
@@ -253,8 +268,14 @@ class SamidareBoard(AcquisitionBoard):
     def _write_sources(self) -> None:
         if self.capture_abi != CAPTURE_ABI_MAGIC:
             raise InvalidParameterError("SAMIDARE firmware does not expose the required SAM3 ABI; refusing source write")
-        self.client.write_register(START_SOURCE_REGISTER, {"local": 0, "gpio0": 1}[self.state.start_source])
-        self.client.write_register(EVENT_SOURCE_REGISTER, {"gpio1": 0, "self": 2, "1khz": 3, "10khz": 4}[self.state.event_source])
+        self.client.write_register(
+            START_SOURCE_REGISTER,
+            {"local": 0, "gpio0": 1, "mikumari": 2}[self.state.start_source],
+        )
+        self.client.write_register(
+            EVENT_SOURCE_REGISTER,
+            {"gpio1": 0, "mikumari": 1, "self": 2, "1khz": 3}[self.state.event_source],
+        )
 
     def _refresh_hardware_status(self) -> None:
         capture_abi = self.client.read_register(CAPTURE_ABI_REGISTER)
@@ -278,8 +299,8 @@ class SamidareBoard(AcquisitionBoard):
             event_source = self.client.read_register(EVENT_SOURCE_REGISTER)
             state = replace(
                 state,
-                start_source={0: "local", 1: "gpio0"}.get(start_source, "local"),
-                event_source={0: "gpio1", 2: "self", 3: "1khz", 4: "10khz"}.get(event_source, "gpio1"),
+                start_source={0: "local", 1: "gpio0", 2: "mikumari"}.get(start_source, "local"),
+                event_source={0: "gpio1", 1: "mikumari", 2: "self", 3: "1khz"}.get(event_source, "gpio1"),
             )
             capture_status = self.client.read_register(CAPTURE_STATUS_REGISTER)
             accepted_trigger_count = self.client.read_register(ACCEPTED_TRIGGER_COUNT_REGISTER)
