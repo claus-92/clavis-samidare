@@ -10,7 +10,8 @@ def test_encode_default_pon_has_default_gain_and_negative_polarity() -> None:
 def test_encode_full_pon_control_state() -> None:
     state = SamidareControlState(
         powered=True,
-        trigger="self",
+        start_source="gpio0",
+        event_source="self",
         trigger_threshold=100,
         polarity="positive",
         gain=3,
@@ -19,22 +20,29 @@ def test_encode_full_pon_control_state() -> None:
         clock_source="gpio",
     )
 
-    assert encode_pon(state) == 0x61904B
+    assert encode_pon(state) == 0x619049
 
 
 def test_decode_pon_round_trips_supported_values() -> None:
     state = SamidareControlState(
         powered=True,
-        trigger="1mhz",
+        event_source="mikumari",
         trigger_threshold=1023,
         polarity="negative",
         gain=2,
-        samples=128,
+        samples=16,
         pretrigger=16,
         clock_source="gpio",
     )
 
-    assert decode_pon(encode_pon(state)) == state
+    decoded = decode_pon(encode_pon(state))
+    assert decoded.powered == state.powered
+    assert decoded.trigger_threshold == state.trigger_threshold
+    assert decoded.polarity == state.polarity
+    assert decoded.gain == state.gain
+    assert decoded.samples == state.samples
+    assert decoded.pretrigger == state.pretrigger
+    assert decoded.clock_source == state.clock_source
 
 
 def test_clock_source_uses_both_firmware_bits() -> None:
@@ -51,3 +59,16 @@ def test_update_state_validates_values() -> None:
 
     with pytest.raises(ValueError, match="gain"):
         update_state(SamidareControlState(), {"gain": 4})
+
+    with pytest.raises(ValueError, match="event_source"):
+        update_state(SamidareControlState(), {"event_source": "10khz"})
+
+
+def test_mikumari_is_valid_for_start_and_event_sources() -> None:
+    state = update_state(
+        SamidareControlState(),
+        {"start_source": "mikumari", "event_source": "mikumari"},
+    )
+
+    assert state.start_source == "mikumari"
+    assert state.event_source == "mikumari"

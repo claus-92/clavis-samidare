@@ -1,11 +1,18 @@
 {
   "generalParameters": [
     {
-      "name": "trigger",
+      "name": "start_source",
       "type": "string",
-      "defaultValue": "external",
-      "options": ["external", "self", "1khz", "1mhz"],
-      "description": "SAMIDARE trigger source"
+      "defaultValue": "local",
+      "options": ["local", "gpio0", "mikumari"],
+      "description": "Run-start source"
+    },
+    {
+      "name": "event_source",
+      "type": "string",
+      "defaultValue": "gpio1",
+      "options": ["gpio1", "mikumari", "self", "1khz"],
+      "description": "Event-trigger source"
     },
     {
       "name": "trigger_threshold",
@@ -35,14 +42,14 @@
       "type": "integer",
       "defaultValue": 16,
       "options": [16, 32, 64, 128],
-      "description": "Number of samples per event"
+      "description": "Samples from the always-included baseline frame"
     },
     {
       "name": "pretrigger",
       "type": "integer",
       "defaultValue": 0,
       "options": [0, 4, 8, 16],
-      "description": "Pretrigger sample setting"
+      "description": "Additional samples before the baseline frame; total event samples are samples + pretrigger"
     },
     {
       "name": "clock_source",
