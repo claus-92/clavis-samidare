@@ -1,0 +1,21 @@
+services:
+  daemon:
+    extends:
+      file: ../clavis/compose.yaml
+      service: daemon
+    image: ${CLAVIS_DAEMON_IMAGE:-clavis-samidare:local}
+    build:
+      context: .
+      dockerfile: Dockerfile.compose
+      additional_contexts:
+        clavis-core: ../clavis
+
+  caddy:
+    extends:
+      file: ../clavis/compose.yaml
+      service: caddy
+    volumes:
+      - ../clavis/Caddyfile:/etc/caddy/Caddyfile:ro
+
+volumes:
+  clavis-runtime:
