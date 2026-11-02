@@ -71,7 +71,7 @@ class SamidareBoard(AcquisitionBoard):
         metadata: BoardMetadata,
         client: RegisterClient,
         *,
-        power_settle_time: float = 2.2,
+        power_settle_time: float = 0.01,
         reset_settle_time: float = 0.01,
     ) -> None:
         self.metadata = metadata
@@ -150,9 +150,9 @@ class SamidareBoard(AcquisitionBoard):
         self.status_error = None
         self.state = SamidareControlState(**{**self.state.__dict__, "powered": True})
         self._write_pon()
-        time.sleep(self.power_settle_time)
+        #time.sleep(self.power_settle_time)
         self.client.write_register(SAMPA_RESET_REGISTER, SAMPA_RESET_REQUEST)
-        time.sleep(self.reset_settle_time)
+        #time.sleep(self.reset_settle_time)
         self.client.write_register(DELAY_ADJUST_INIT_REGISTER, 1)
 
     def power_off(self) -> None:
